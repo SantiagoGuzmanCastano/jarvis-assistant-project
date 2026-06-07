@@ -3,3 +3,5 @@ uvicorn
 pydantic-settings
 sqlalchemy
 psycopg[binary]
+bcrypt<5
+
