@@ -1,0 +1,42 @@
+# docker-compose.yml define y orquesta los servicios que componen el proyecto.
+
+# Tambien se define un usuario de Postgres
+# Un usuario de PostgreSQL es una cuenta con credenciales 
+# (nombre + contraseña) que permite conectarse a la base de datos.
+# Define quién puede entrar y qué puede hacer dentro de ella.
+# Una mejor forma de verlo es como si crearamos una cuenta en postgres
+# solo para ese proyecto
+
+
+services:
+  postgres:
+    # Imagen oficial de PostgreSQL versión 16,
+    # Docker sabe que tiene que correr postgres por esta linea
+    image: postgres:16
+
+    # Nombre visible del contenedor en Docker
+    container_name: jarvis_postgres
+
+    # Variables de entorno que PostgreSQL usa al inicializarse por primera vez
+    environment:
+
+      # Nombre de la base de datos que PostgreSQL creará al iniciar
+      POSTGRES_DB: jarvis_db
+
+      # Usuario propietario de esa base de datos
+      POSTGRES_USER: jarvis_user
+
+      # Contraseña de ese usuario.
+      POSTGRES_PASSWORD: jarvis_password
+
+    # Mapea el puerto del host al puerto del contenedor (host:contenedor)
+    ports:
+      - "5432:5432"
+
+    # Monta un volumen para persistir los datos aunque el contenedor se elimine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+# Declaracion de volúmenes nombrados gestionados por Docker
+volumes:
+    postgres_data:

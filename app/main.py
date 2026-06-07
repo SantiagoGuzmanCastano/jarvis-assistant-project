@@ -11,3 +11,5 @@ app = FastAPI(title=settings.app_name)
 #Voy a tomar todos los endpoints de este archivo
 #Y los voy a agregar a la app principal
 app.include_router(health_router)
+
+
