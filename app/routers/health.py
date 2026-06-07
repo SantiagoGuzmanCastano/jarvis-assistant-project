@@ -1,6 +1,8 @@
 
 from fastapi import APIRouter
 
+from schemas.health import HealthResponse
+
 
 #Creamos un objeto Router
 #Este objeto guarda todos los endpoints
@@ -8,7 +10,7 @@ from fastapi import APIRouter
 router = APIRouter()
 
 #Todos estos endpoints
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 def health_check():
     return {
         'status': 'ok',
