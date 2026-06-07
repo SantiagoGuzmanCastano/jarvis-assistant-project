@@ -1,6 +1,7 @@
 from fastapi import FastAPI
+from core.config import settings
 
-app = FastAPI()
+app = FastAPI(title=settings.app_name)
 
 @app.get("/health")
 def health_check():
@@ -8,3 +9,4 @@ def health_check():
         'status': 'ok',
         'service': 'jarvis-backend'
     }
+
