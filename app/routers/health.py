@@ -1,7 +1,7 @@
 
 from fastapi import APIRouter
 
-from schemas.health import HealthResponse
+from app.schemas.health import HealthResponse
 
 
 #Creamos un objeto Router

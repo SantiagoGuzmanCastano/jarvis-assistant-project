@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from core.config import settings
+from app.core.config import settings
 
 #Voy a tomar todos los endpoints de este archivo
-from routers.health import router as health_router
-from routers.auth import router as auth_router
+from app.routers.health import router as health_router
+from app.routers.auth import router as auth_router
 
 
 app = FastAPI(title=settings.app_name)

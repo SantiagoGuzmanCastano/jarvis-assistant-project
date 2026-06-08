@@ -5,7 +5,14 @@ info:
 
 http:
   method: POST
-  url: ""
+  url: http://127.0.0.1:8000/auth/register
+  body:
+    type: json
+    data: |-
+      {
+        "email": "test@example.com",
+        "password": "passwo2rd123"
+      }
   auth: inherit
 
 settings:
