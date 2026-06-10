@@ -27,7 +27,7 @@ def login_user(user_info: UserLogin, session: Session):
     if user_exists is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='User Not Found'
+            detail='Invalid Credentials'
         )
     
     if verify_password(plain_password=user_info.password, hashed_password=user_exists.hashed_password) is False:

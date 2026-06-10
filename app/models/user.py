@@ -7,7 +7,7 @@
 from datetime import datetime
 
 from app.db.base import Base
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 
@@ -26,4 +26,11 @@ class User(Base):
     #en resumen, usalo siempre que necesites buscar algo frecuentemente
     email: Mapped[str] = mapped_column(unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    #Este usuario tiene una propiedad llamada conversations.
+    #Esa propiedad contiene sus conversaciones.
+    #Cada conversación se conecta de vuelta con este usuario usando Conversation.user.
+
+    #te devuelve una lista de conversaciones (objetos) del user
+    conversations = relationship("Conversation", back_populates="user")

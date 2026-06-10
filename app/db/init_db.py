@@ -10,6 +10,10 @@ from app.db.session import engine
 #estos de aca abajo son los imports de los
 # modelos de nuestra base de datos
 from app.models.user import User
+from app.models.conversation import Conversation
+from app.models.message import Message
+from app.models.conversation import Conversation
+from app.models.message import Message
 
 
 def create_db_tables():
