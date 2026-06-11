@@ -42,3 +42,9 @@ def create_message(content: str, conversation_id: int, session: Session, role: s
     session.commit()
     session.refresh(new_message)
     return new_message
+
+
+def get_conversation_messages(conversation_id: int, session: Session):
+
+    query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
+    return session.scalars(query).all()
