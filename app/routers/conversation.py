@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException,status
 
 from app.db.session import SessionDep
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.conversation import ConversationResponse, ConversationWithMessages, CreateConversation, CreateMessage, MessageResponse
-from app.services.conversation import create_user_conversation, create_user_message, get_current_user_conversations, get_user_conversation_detail
+from app.schemas.conversation import ConversationResponse, ConversationWithMessages, CreateConversation, CreateMessage, DeleteConversation, MessageResponse
+from app.services.conversation import create_user_conversation, create_user_message, delete_current_user_conversation, get_current_user_conversations, get_user_conversation_detail
 
 #el tags sirve para que en los docs los endpoints de conversation salgan bajo del titulo
 #que esta en tags, o sea conversations
@@ -32,3 +32,8 @@ def create_new_conversation_message(body: CreateMessage,conversation_id: int, se
     new_message = create_user_message(current_user=current_user, conversation_id=conversation_id, session=session, body=body)
 
     return new_message
+
+@router.delete('/{conversation_id}', status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_conversation(session: SessionDep,conversation_id: int, current_user: User = Depends(get_current_user)):
+    delete_current_user_conversation(user_id=current_user.id, session=session, conversation_id=conversation_id)
+    return

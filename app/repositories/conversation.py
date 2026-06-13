@@ -1,4 +1,5 @@
-from sqlalchemy import select
+from fastapi import HTTPException,status
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation
@@ -48,3 +49,20 @@ def get_conversation_messages(conversation_id: int, session: Session):
 
     query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
     return session.scalars(query).all()
+
+
+def delete_conversation(conversation_id:int, session: Session):
+
+    query = delete(Conversation).where(Conversation.id == conversation_id)
+
+    session.execute(query)
+    session.commit()
+
+
+def delete_conversation_messages(conversation_id: int, session: Session):
+
+
+    query = delete(Message).where(
+    Message.conversation_id == conversation_id)
+    session.execute(query)
+    session.commit()

@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 class CreateConversation(BaseModel):
     title: str | None = Field(default=None)
 
+class DeleteConversation(BaseModel):
+    id: int
+
 class CreateMessage(BaseModel):
     content: str
 

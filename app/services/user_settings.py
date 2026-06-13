@@ -7,7 +7,7 @@ from app.schemas.user_settings import UserSettingsCreate, UserSettingsUpdate
 
 
 DEFAULT_ASSISTANT_NAME = 'Jarvis'
-DEFAULT_ASSISTANT_PERSONALITY = ''
+DEFAULT_ASSISTANT_PERSONALITY = "Loyal, helpful, sharp, direct, and naturally conversational."
 
 def create_current_user_setting(user_id: int, session: Session, body:UserSettingsCreate):
 

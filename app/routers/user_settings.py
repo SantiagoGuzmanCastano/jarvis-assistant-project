@@ -18,12 +18,12 @@ def update_my_settings(body: UserSettingsUpdate, session: SessionDep, current_us
     updated_user_settings = update_current_user_settings(user_id=current_user.id, session=session, body=body)
     return updated_user_settings
 
-@router.get('', response_model=UserSettingsResponse)
+@router.get('/me', response_model=UserSettingsResponse)
 def get_my_settings(session: SessionDep, current_user: User = Depends(get_current_user)):
     user_settings = get_current_user_settings(user_id=current_user.id, session=session)
     return user_settings
 
-@router.patch('/restart', response_model=UserSettingsResponse)
+@router.patch('/reset', response_model=UserSettingsResponse)
 def restart_my_settings(session: SessionDep, current_user: User = Depends(get_current_user)):
     user_settings_restarted = restart_current_user_settings(user_id=current_user.id, session=session)
     return user_settings_restarted
