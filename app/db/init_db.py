@@ -16,8 +16,6 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_settings import UserSettings
 
-
-
 def create_db_tables():
     Base.metadata.create_all(bind=engine)
 
