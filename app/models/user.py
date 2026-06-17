@@ -34,3 +34,4 @@ class User(Base):
 
     #te devuelve una lista de conversaciones (objetos) del user
     conversations = relationship("Conversation", back_populates="user")
+    external_accounts = relationship("ExternalAccount", back_populates="user")

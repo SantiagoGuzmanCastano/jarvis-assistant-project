@@ -28,6 +28,12 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
 
+    token_encryption_key: str
+
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
+
     #python hace el mapeo automaticamente por nombre
     #detecta que en .env hay un JWT_SECRET_KEY y lo asigna
     #al jwt_secret_key que esta definido arribita, lo mismo con gemini_api_key
