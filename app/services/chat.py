@@ -69,7 +69,7 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
         #needs_tool=True tool_name='get_current_time' arguments={}
         #asi podemos acceder a needs_tool y tool_name
 
-
+    
     # caso que no nos devuelva un error 
     except ValueError:
         raise HTTPException(
@@ -80,7 +80,7 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
     if tool_intent.needs_tool:
 
         try:
-            tool_result = tool_execution_system(tool_name=tool_intent.tool_name, arguments=tool_intent.arguments) # type: ignore
+            tool_result = tool_execution_system(tool_name=tool_intent.tool_name, arguments=tool_intent.arguments, user_id=user_id, session=session) # type: ignore
             
             #tool_result va a guardar la funcion ejecutada
             # {

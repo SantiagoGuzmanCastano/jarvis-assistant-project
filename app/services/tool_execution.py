@@ -1,9 +1,11 @@
 
 
+from sqlalchemy.orm import Session
+
 from app.tools.registry import TOOLS
 
 
-def tool_execution_system(tool_name: str, arguments: dict):
+def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session: Session):
 
     if tool_name not in TOOLS:
         raise ValueError("Unknown tool")
@@ -11,10 +13,27 @@ def tool_execution_system(tool_name: str, arguments: dict):
     tool_function = TOOLS[tool_name]
 
     #esto devuelve la funcion EJECUTADA
-    return tool_function(arguments)
+    return tool_function(arguments=arguments, user_id=user_id, session=session)
 
 
 def build_tool_context(tool_name: str, tool_result: dict) -> str:
+
+    if tool_name == "gmail_search_drafted_emails":
+        return f"""
+            A Gmail draft search tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            These results are Gmail drafts, not received emails and not sent emails.
+
+            Rules for answering:
+            - If the result is empty, tell the user no matching draft was found.
+            - If there is one draft, summarize the draft using to, subject, and snippet.
+            - If there are multiple drafts, show the main differences and ask the user which draft they mean.
+            - Do not say the draft was sent.
+            - Do not expose draft_id unless the user explicitly asks for technical details.
+        """
 
     return f"""
         A backend tool was executed.
