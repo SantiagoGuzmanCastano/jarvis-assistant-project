@@ -86,12 +86,12 @@ def fetch_gmail_draft_metadata(draft_id: int, access_token: str):
     return response.json()
 
 
-def fetch_gmail_drafts(acces_token: str, max_results: int):
-    fetched_draft = fetch_gmail_drafts_ids(access_token=acces_token, max_results=max_results)
+def fetch_gmail_drafts(access_token: str, max_results: int):
+    fetched_draft = fetch_gmail_drafts_ids(access_token=access_token, max_results=max_results)
 
     draft_list = []
     for draft in fetched_draft.get("drafts", []):
-        fetched_draft_email = fetch_gmail_draft_metadata(access_token=acces_token, draft_id=draft["id"])
+        fetched_draft_email = fetch_gmail_draft_metadata(access_token=access_token, draft_id=draft["id"])
         draft_list.append(fetched_draft_email)
 
     return draft_list
@@ -154,7 +154,7 @@ def fetch_gmail_drafts(acces_token: str, max_results: int):
 GOOGLE_SEND_DRAFT_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts/send"
 
 
-def send_gmail_draft(draft_id:int, access_token: str):
+def send_gmail_draft(draft_id:str, access_token: str):
 
 
     headers={
@@ -169,7 +169,8 @@ def send_gmail_draft(draft_id:int, access_token: str):
     GOOGLE_SEND_DRAFT_URL,
     headers=headers,
     json=payload)
-
+    response.raise_for_status()
+    
 
 # --------------SEARCH DRAFT---------------
 
@@ -193,7 +194,7 @@ def normalize_text(text: str | None) -> str:
 
 def search_gmail_drafts(access_token: str,max_results: int, recipient_hint: str, subject_keywords: list[str], snippet_keywords:list[str]):
 
-    drafted_emails=fetch_gmail_drafts(acces_token=access_token, max_results=max_results)
+    drafted_emails=fetch_gmail_drafts(access_token=access_token, max_results=max_results)
 
     #EL QUE RECIBE EL EMAIL
     recipient_hint = normalize_text(recipient_hint)
@@ -218,13 +219,20 @@ def search_gmail_drafts(access_token: str,max_results: int, recipient_hint: str,
         draft_id = draft["id"]
         # snippet = draft['message']['snippet']
 
+        to_original = ""
+        snippet_original = ""
+        subject_original = ""
+
         snippet = normalize_text(draft["message"].get("snippet", ""))
+        snippet_original = draft["message"].get("snippet", "")
 
         for header in draft["message"]["payload"]['headers']:
             if header['name'] == "To":
                 to = normalize_text(header['value'])
+                to_original = header["value"]
             elif header['name'] == "Subject":
                 subject = normalize_text(header['value'])
+                subject_original = header["value"]
         
         if recipient_hint and recipient_hint in to:
             score +=3
@@ -240,9 +248,9 @@ def search_gmail_drafts(access_token: str,max_results: int, recipient_hint: str,
         if score > 0:
             matches.append({
             "draft_id":draft_id,
-            "to": to,
-            "subject": subject,
-            "snippet": snippet,
+            "to": to_original,
+            "subject": subject_original,
+            "snippet": snippet_original,
             "score": score
             })
 

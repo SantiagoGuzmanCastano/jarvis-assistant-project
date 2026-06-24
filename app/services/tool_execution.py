@@ -45,4 +45,8 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
         {tool_result}
 
         Use this result to answer the user naturally.
+        Do not claim success unless the tool result clearly indicates success.
+        If the tool result indicates an error, no match, missing permission, or multiple possible matches, explain that the action was not completed.
+        Never infer success from the fact that a tool was executed.
+        Only say the action succeeded if the tool result explicitly confirms it.
     """

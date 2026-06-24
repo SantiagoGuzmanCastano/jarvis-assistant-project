@@ -45,12 +45,31 @@ def create_message(content: str, conversation_id: int, session: Session, role: s
     return new_message
 
 
-def get_conversation_messages(conversation_id: int, session: Session):
+def get_conversation_messages(conversation_id: int, session: Session, limit: int):
 
-    query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
+    query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at).limit(limit=limit)
     return session.scalars(query).all()
 
 
+def get_recent_conversation_messages(conversation_id: int, session: Session, limit: int) -> list:
+
+    query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at.desc()).limit(limit)
+
+    #DB devuelve:
+    # mensaje 10
+    # mensaje 9
+    # mensaje 8
+    messages = session.scalars(query).all()
+
+    # Prompt necesita:
+    # mensaje 8
+    # mensaje 9
+    # mensaje 10
+    return list(reversed(messages))
+
+    
+
+    
 def delete_conversation(conversation_id:int, session: Session):
 
     query = delete(Conversation).where(Conversation.id == conversation_id)

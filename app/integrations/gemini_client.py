@@ -31,13 +31,13 @@ def generate_gemini_response(messages,system_prompt):
     return response.text
 
 
-def generate_gemini_intent_response(last_message_content: str,system_intent_prompt: str) -> str:
+def generate_gemini_intent_response(conversation_content: str,system_intent_prompt: str) -> str:
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
-            contents=last_message_content,
+            contents=conversation_content,
             config=types.GenerateContentConfig(
             system_instruction=system_intent_prompt,
             ),

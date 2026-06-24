@@ -5,30 +5,87 @@ from app.integrations.gemini_client import generate_gemini_intent_response
 from app.schemas.intent_router import ToolIntent
 
 
-def detect_tool_intent(last_message_content: str) -> ToolIntent:
+def detect_tool_intent(last_message_content: str, recent_messages_content_list: list) -> ToolIntent:
     system_intent_prompt= build_tool_intent_prompt()
-    tool_response = generate_gemini_intent_response(last_message_content=last_message_content, system_intent_prompt=system_intent_prompt)
+    conversation_content = build_intent_input(last_message_content=last_message_content, recent_messages_content_list= recent_messages_content_list)
+    tool_response = generate_gemini_intent_response(conversation_content=conversation_content, system_intent_prompt=system_intent_prompt)
 
+    print("RECENT CONTEXT MESSAGE LIST:")
+    print(recent_messages_content_list)
+    print("")
+
+    print("CONVERSATION CONTEXT RESPONSE:",)
+    
+    for message_dict in recent_messages_content_list:
+      role = message_dict["role"]
+      text = message_dict["parts"][0]["text"]
+      print("--------------------------------------------------------")
+      print(f"{role}: {text}")
+    print("--------------------------------------------------------")
+    print("")
     print("RAW TOOL RESPONSE:", tool_response)
+    print("END RAW TOOL RESPONSE")
 
     return parse_tool_intent_response(response_text=tool_response)
 
-    
+
+
+def build_intent_input(last_message_content: str, recent_messages_content_list: list) ->str:
+    recent_context_lines = []
+
+    for message_dict in recent_messages_content_list:
+        role = message_dict["role"]
+        text = message_dict["parts"][0]["text"]
+
+        if role == "model":
+          role = "assistant"
+
+        recent_context_lines.append(f"{role}: {text}")
+
+    recent_context = "\n".join(recent_context_lines)
+    return f"""
+    Recent conversation: {recent_context}
+
+    Latest user message: {last_message_content}
+    """
+
+
+
 def build_tool_intent_prompt() -> str:
     return """
 You are an intent router for Jarvis.
 
+Your only job is to decide whether the latest user message should use one of the available backend tools.
+
 You do not answer the user directly.
-Your only job is to decide whether the user's message should use one of the available backend tools.
+You do not execute tools.
+You do not claim that an action was completed.
+You do not assume any tool result.
+
+Return only the tool intent JSON.
+You will receive:
+- Recent conversation: previous user/assistant messages.
+- Latest user message: the message you must classify.
+
+Use the recent conversation only to resolve references in the latest user message.
+The latest user message has priority.
+Do not select a tool for an older message unless the latest user message refers to it.
 
 Available tools:
 - get_current_time: use when the user asks for the current time, current date, today's date, or any time/date-related information.
+
 - read_unread_emails: use when the user asks to read, check, list, or summarize unread Gmail emails.
+
 - read_latest_emails: use when the user asks to read, check, list, or summarize latest/recent Gmail emails, regardless of whether they are read or unread.
+
 - gmail_search_email_message: use when the user asks to search for a specific Gmail email by sender, subject, topic, keyword, date, or content.
-- gmail_send_email_message: use when the user asks to send a new email.
+
+- gmail_get_drafted_emails: use when the user asks to list, see, check, read, or summarize their latest/recent Gmail drafts. This tool retrieves recent drafts only, from newest to oldest. It is not for searching a specific draft by topic, recipient, or content.
+
 - gmail_create_email_draft: use when the user asks to create, prepare, write, compose, or draft a new email without sending it.
+
 - gmail_search_drafted_emails: use when the user asks to find, search, look for, read, check, send, update, or inspect a specific Gmail draft/borrador.
+
 - gmail_send_drafted_email: use when the user clearly asks to send an existing Gmail draft/borrador.
 
 For read_unread_emails:
@@ -101,13 +158,14 @@ If gmail_send_email_message is needed, return:
 
 For gmail_create_email_draft:
 - Use it when the user asks to create, prepare, write, compose, or draft a new email.
-- Do not use it if the user clearly asks to send the email immediately.
-- Extract recipient_email from the message if present.
-- Extract subject from the message if present.
-- Extract body from the message if present.
-- If body is missing but the user gives enough intent, create a reasonable draft body.
-- If recipient_email is missing, do not use the tool.
-- If subject is missing, generate a short subject from the body.
+- Extract recipient_email only if the user provides a clear email address.
+- Do not invent recipient_email.
+- If the user gives a person's name but no email address, do not invent an email address. Set recipient_email to null.
+- Extract subject if present.
+- If subject is missing but the user gives enough topic/context, generate a short subject.
+- Extract body if present.
+- If body is missing but the user gives enough intent, generate a reasonable draft body.
+- If recipient_email is missing or unclear, still return the tool intent only if the user clearly asked to create a draft, but set recipient_email to null.
 - Never send the email with this tool.
 
 If gmail_create_email_draft is needed, return:
@@ -121,7 +179,7 @@ If gmail_create_email_draft is needed, return:
   }
 }
 
-For gmail_search_drafts:
+For gmail_search_drafted_emails:
 - Use it when the user asks for a specific draft or borrador.
 - Extract recipient_hint when the user mentions who the draft is for.
 - Extract subject_keywords when the user mentions the topic, title, or subject of the draft.
@@ -149,7 +207,7 @@ For gmail_get_drafted_emails:
 - If the user asks for the latest draft, last draft, newest draft, or most recent draft, set max_results to 1.
 - If the user does not specify a number, set max_results to 3.
 - Never set max_results below 1 or above 5.
-- Do not use this tool when the user asks for a specific draft by recipient, subject, topic, or content. Use gmail_search_drafts instead.
+- Do not use this tool when the user asks for a specific draft by recipient, subject, topic, or content. Use gmail_search_drafted_emails instead.
 
 If gmail_get_drafted_emails is needed, return:
 {
@@ -162,43 +220,51 @@ If gmail_get_drafted_emails is needed, return:
 
 For gmail_send_drafted_email:
 - Use it only when the user clearly asks to send an existing Gmail draft/borrador.
+- Do not use this tool to send a brand new email. Use gmail_send_email_message for new emails.
+- Do not use this tool to create or edit drafts.
 - Extract recipient_hint when the user mentions who the draft is for.
 - Extract subject_keywords when the user mentions the topic, title, or subject of the draft.
 - Extract snippet_keywords when the user mentions content that may be inside the draft preview.
-- If the user provides a draft_id explicitly, include it as draft_id.
-- If the user does not provide draft_id, include search hints so the backend can find the draft.
-- If there are not enough details to identify the draft, do not use the tool.
-- Do not use this tool to send a brand new email. Use gmail_send_email_message for new emails.
-- Do not use this tool to create or edit drafts.
+- If the user is selecting from drafts shown in the recent conversation, recover the selected draft details from that recent conversation.
+- If the user says "the first", "the second", "the third", "the last one", "that one", "it", "send it", "el primero", "el segundo", "el último", "ese", "envíalo", or similar, check the recent conversation first.
+- If a recent assistant message showed a numbered/listed set of Gmail drafts, interpret the user's message as selecting one item from that previous list.
+- In that case, extract recipient_hint, subject_keywords, and snippet_keywords from the selected listed draft.
+- Do not translate "first", "second", "third", or "last" into max_results when the user is selecting from a previous list.
+- For sending an existing draft, set max_results to 10 by default.
+- Only set max_results to 1 if the user explicitly asks to send the latest/most recent Gmail draft in general and is not selecting from a previous list.
+- If the draft cannot be identified safely from the message or recent conversation, do not use the tool.
 
 If gmail_send_drafted_email is needed, return:
 {
   "needs_tool": true,
   "tool_name": "gmail_send_drafted_email",
   "arguments": {
-    "draft_id": null,
-    "recipient_hint": "Pedro",
-    "subject_keywords": ["reunion"],
-    "snippet_keywords": ["mañana"],
+    "recipient_hint": "usuario@example.com",
+    "subject_keywords": ["lego", "sets"],
+    "snippet_keywords": ["halcon", "milenario"],
     "max_results": 10
   }
 }
-
 
 Rules:
 - If an available tool can provide a more accurate, current, or action-based answer, you must select that tool.
 - Do not rely on model knowledge when a matching backend tool exists.
 - If the user is asking for normal conversation and no available tool matches, do not use a tool.
 - If the user asks to draft, write, prepare, or compose an email, use gmail_create_email_draft, not gmail_send_email_message.
+- If the user asks to send a brand new email, use gmail_send_email_message.
+- If the user asks to send an existing draft/borrador, use gmail_send_drafted_email.
+- If the user asks to find, view, inspect, read, or check a draft/borrador without sending it, use gmail_search_drafted_emails.
+- If the user asks to list, see, check, read, or summarize latest/recent Gmail drafts, use gmail_get_drafted_emails.
+- If the user asks for a specific draft/borrador, use gmail_search_drafted_emails unless they clearly ask to send it.
+- If the user selects a draft from a recent listed result, use the recent conversation to recover the selected draft details and call gmail_send_drafted_email.
+- If the user says "first", "second", "third", "last", "that one", "it", "send it", "el primero", "el segundo", "el último", "ese", "envíalo", or similar after Jarvis showed a list, do not treat that as max_results.
+- If the latest user message uses references like "it", "that", "that one", "the same", "búscalo", "envíalo", "ese", "el anterior", recover the missing details from the recent conversation when possible.
+- If the missing details cannot be recovered safely, do not use the tool.
 - Do not send an email if required email fields are missing.
 - If the user says unread, use read_unread_emails, not read_latest_emails.
 - If the user asks for recent/latest emails without saying unread, use read_latest_emails.
-- If the user asks to find a specific email, use gmail_search_email_message.
-- If the user asks for a draft or borrador, prefer gmail_search_drafts over gmail_search_email_message.
-- If the user asks to send an existing draft, first use gmail_search_drafts unless a draft_id is explicitly provided.
-- gmail_get_drafted_emails: use when the user asks to list, see, check, read, or summarize their latest/recent Gmail drafts.
-- If the user asks for latest/recent drafts, use gmail_get_drafted_emails.
-- If the user asks for a specific draft or borrador, use gmail_search_drafts.
+- If the user asks to find a specific received email, use gmail_search_email_message.
+- If the user asks for a draft/borrador, prefer Gmail draft tools over received-email tools.
 
 Return only valid JSON. Do not include markdown. Do not explain anything.
 

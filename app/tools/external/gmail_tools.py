@@ -6,6 +6,34 @@ from app.integrations.gmail.send import gmail_send_email_message
 from app.services.external_auth_service import get_valid_google_access_token
 
 
+def format_gmail_message_metadata(message_list: list):
+    message_list_output = []
+
+    for message in message_list:
+        headers = message["payload"]["headers"]
+
+        from_value = None
+        date_value = None
+        subject_value = None
+
+        snippet = message["snippet"]
+
+        for header in headers:
+            header_name = header.get("name", "").lower()
+            if header_name == "from":
+                from_value = header["value"]
+            if header_name == "subject":
+                subject_value = header["value"]
+            if header_name == "date":
+                date_value = header["value"]
+
+        message_list_output.append(
+            {"from": from_value, "subject": subject_value, "date": date_value, "snippet": snippet}
+        )
+
+    return message_list_output
+
+
 # --------------GET UNREAD---------------
 
 def read_unread_emails_tool(arguments: dict, user_id: int, session: Session):
@@ -44,30 +72,7 @@ def read_unread_emails_tool(arguments: dict, user_id: int, session: Session):
     #   }
     # ]
 
-    message_list_output = []
-
-    for message in message_list:
-        headers = message["payload"]["headers"]
-
-        from_value = None
-        date_value = None
-        subject_value = None
-
-        snippet = message["snippet"]
-
-        for header in headers:
-            header_name = header.get("name", "").lower()
-            if header_name == "from":
-                from_value = header["value"]
-            if header_name == "subject":
-                subject_value = header["value"]
-            if header_name == "date":
-                date_value = header["value"]
-
-        message_list_output.append(
-            {"from": from_value, "subject": subject_value, "date": date_value, "snippet": snippet}
-        )
-
+    message_list_output = format_gmail_message_metadata(message_list=message_list)
     return message_list_output
 
 # --------------GET LATEST---------------
@@ -108,51 +113,29 @@ def read_latest_emails_tool(arguments: dict, user_id: int, session: Session):
     #   }
     # ]
 
-    message_list_output = []
 
-    for message in message_list:
-        headers = message["payload"]["headers"]
-
-        from_value = None
-        date_value = None
-        subject_value = None
-
-        snippet = message["snippet"]
-
-        for header in headers:
-            header_name = header.get("name", "").lower()
-            if header_name == "from":
-                from_value = header["value"]
-            if header_name == "subject":
-                subject_value = header["value"]
-            if header_name == "date":
-                date_value = header["value"]
-
-        message_list_output.append(
-            {"from": from_value, "subject": subject_value, "date": date_value, "snippet": snippet}
-        )
-
+    message_list_output = format_gmail_message_metadata(message_list=message_list)
     return message_list_output
 
 
 # --------------SEND---------------
 
-def gmail_send_email_message_tool(arguments: dict, user_id: int, session: Session):
+# def gmail_send_email_message_tool(arguments: dict, user_id: int, session: Session):
     
-    recipient_email = arguments.get("recipient_email")
-    subject = arguments.get("subject")
-    body = arguments.get("body")
+#     recipient_email = arguments.get("recipient_email")
+#     subject = arguments.get("subject")
+#     body = arguments.get("body")
 
 
-    access_token=get_valid_google_access_token(user_id=user_id, session=session)
-    email_sent = gmail_send_email_message(
-        access_token=access_token,
-        recipient_email=recipient_email,
-        subject=subject,
-        body=body,
-    )
+#     access_token=get_valid_google_access_token(user_id=user_id, session=session)
+#     email_sent = gmail_send_email_message(
+#         access_token=access_token,
+#         recipient_email=recipient_email,
+#         subject=subject,
+#         body=body,
+#     )
     
-    return email_sent
+#     return email_sent
 
 
 # --------------SEARCH---------------
@@ -175,6 +158,26 @@ def gmail_create_email_draft_tool(arguments:dict, user_id: int, session: Session
     subject = arguments.get("subject")
     body = arguments.get("body")
 
+    missing_fields = []
+
+    if recipient_email is None:
+        missing_fields.append("recipient_email")
+
+    if subject is None:
+        missing_fields.append("subject")
+
+    if body is None:
+        missing_fields.append("body")
+
+    #si missing fields tiene algo, si es not empty
+    if missing_fields:
+        return {
+            "created": False,
+            "reason": "missing_required_fields",
+            "missing_fields": missing_fields,
+        }
+
+
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
     new_draft_message = create_gmail_draft(access_token=access_token, body=body, subject=subject, recipient_email=recipient_email)
     return new_draft_message
@@ -185,7 +188,7 @@ def gmail_get_drafted_emails_tool(arguments: dict,user_id: int, session: Session
     max_results = arguments.get("max_results", 3)
     max_results = min(max(int(max_results), 1), 5)
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
-    draft_email = fetch_gmail_drafts(acces_token=access_token,max_results=max_results)
+    draft_email = fetch_gmail_drafts(access_token=access_token,max_results=max_results)
     return draft_email
 
 
@@ -210,6 +213,7 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
     subject_keywords = arguments.get("subject_keywords",[])
     snippet_keywords = arguments.get("snippet_keywords",[])
     max_results = arguments.get("max_results",10)
+    
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
 

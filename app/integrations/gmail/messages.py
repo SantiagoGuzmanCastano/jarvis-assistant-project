@@ -138,9 +138,6 @@ def fetch_latest_gmail_messages_ids(access_token: str, max_results: int):
 
     response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
 
-    print("ACCESS TOKEN START:", access_token[:20])
-    print("GMAIL STATUS:", response.status_code)
-    print("GMAIL ERROR:", response.text)
     response.raise_for_status()
 
     return response.json()
@@ -176,6 +173,7 @@ def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query:
 
     response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
 
+    response.raise_for_status()
     return response.json()
 
 # {
