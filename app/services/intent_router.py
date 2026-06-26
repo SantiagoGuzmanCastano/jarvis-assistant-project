@@ -88,6 +88,8 @@ Available tools:
 
 - gmail_send_drafted_email: use when the user clearly asks to send an existing Gmail draft/borrador.
 
+- gmail_create_multiple_email_drafts: use when the user asks to create multiple Gmail drafts/emails at once.
+
 For read_unread_emails:
 - If the user asks for a specific number of unread emails, set max_results to that number.
 - If the user asks for the latest unread email, last unread email, or most recent unread email, set max_results to 1.
@@ -138,23 +140,6 @@ If gmail_search_email_message is needed, return:
   }
 }
 
-For gmail_send_email_message:
-- Use it only when the user clearly asks to send a new email.
-- Extract recipient_email from the message.
-- Extract subject from the message.
-- Extract body from the message.
-- If recipient_email, subject, or body is missing, do not use the tool.
-
-If gmail_send_email_message is needed, return:
-{
-  "needs_tool": true,
-  "tool_name": "gmail_send_email_message",
-  "arguments": {
-    "recipient_email": "recipient@example.com",
-    "subject": "Email subject",
-    "body": "Email body"
-  }
-}
 
 For gmail_create_email_draft:
 - Use it when the user asks to create, prepare, write, compose, or draft a new email.
@@ -228,11 +213,26 @@ For gmail_send_drafted_email:
 - If the user is selecting from drafts shown in the recent conversation, recover the selected draft details from that recent conversation.
 - If the user says "the first", "the second", "the third", "the last one", "that one", "it", "send it", "el primero", "el segundo", "el último", "ese", "envíalo", or similar, check the recent conversation first.
 - If a recent assistant message showed a numbered/listed set of Gmail drafts, interpret the user's message as selecting one item from that previous list.
-- In that case, extract recipient_hint, subject_keywords, and snippet_keywords from the selected listed draft.
+- When selecting one item from a previous numbered/listed draft result, use selected_result_index.
+- selected_result_index means the position of the draft in the last draft matches list shown by Jarvis in this conversation.
+- For example, "el primero" means selected_result_index: 1, "el segundo" means selected_result_index: 2, and "el tercero" means selected_result_index: 3.
+- If selected_result_index is used, do not include recipient_hint, subject_keywords, or snippet_keywords.
+- In that case, do not extract keywords; return selected_result_index instead.
 - Do not translate "first", "second", "third", or "last" into max_results when the user is selecting from a previous list.
 - For sending an existing draft, set max_results to 10 by default.
 - Only set max_results to 1 if the user explicitly asks to send the latest/most recent Gmail draft in general and is not selecting from a previous list.
 - If the draft cannot be identified safely from the message or recent conversation, do not use the tool.
+- This tool can send only one Gmail draft at a time.
+- If the user asks to send multiple drafts at once, do not use this tool.
+- Return needs_tool: false so Jarvis can explain that, for safety, drafts must be sent one at a time.
+- If the user asks to send the latest, most recent, last, penultimate, or antepenultimate Gmail draft in general, use selection_type: "recent_draft".
+- Use recent_draft_index to represent the position among recent Gmail drafts.
+- recent_draft_index is zero-based.
+- The latest/most recent/last draft means recent_draft_index: 0.
+- The penultimate/second latest draft means recent_draft_index: 1.
+- The antepenultimate/third latest draft means recent_draft_index: 2.
+- Use this only when the user is referring to Gmail drafts in general, not to a previous numbered list shown by Jarvis.
+- If the user is selecting from a previous numbered list shown by Jarvis, use selected_result_index instead.
 
 If gmail_send_drafted_email is needed, return:
 {
@@ -245,6 +245,74 @@ If gmail_send_drafted_email is needed, return:
     "max_results": 10
   }
 }
+
+or
+
+{
+  "needs_tool": true,
+  "tool_name": "gmail_send_drafted_email",
+  "arguments": {
+    "selected_result_index": 1
+  }
+}
+
+or
+
+If gmail_send_drafted_email is needed for a recent draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_send_drafted_email",
+  "arguments": {
+    "selection_type": "recent_draft",
+    "recent_draft_index": 0
+  }
+}
+
+
+For gmail_create_multiple_email_drafts:
+- Use it only when the user asks to create more than one Gmail draft/email in the same request.
+- This tool creates Gmail drafts only. It does not send emails.
+- Extract one object per draft.
+- Each draft object must include recipient_email, subject, and body.
+- Do not merge multiple emails into one draft.
+- If a draft is missing recipient_email, subject, or body, include null for the missing field.
+- Set to_create to the number of draft objects in to_create_list.
+
+If gmail_create_multiple_email_drafts is needed, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_create_multiple_email_drafts",
+  "arguments": {
+    "to_create": 2,
+    "to_create_list": [
+      {
+        "recipient_email": "recipient1@example.com",
+        "subject": "First email subject",
+        "body": "First email body"
+      },
+      {
+        "recipient_email": "recipient2@example.com",
+        "subject": "Second email subject",
+        "body": "Second email body"
+      }
+    ]
+  }
+}
+
+If get_current_time is needed, return:
+{
+  "needs_tool": true,
+  "tool_name": "get_current_time",
+  "arguments": {}
+}
+
+If no tool is needed, return:
+{
+  "needs_tool": false,
+  "tool_name": null,
+  "arguments": {}
+}
+
 
 Rules:
 - If an available tool can provide a more accurate, current, or action-based answer, you must select that tool.
@@ -265,22 +333,14 @@ Rules:
 - If the user asks for recent/latest emails without saying unread, use read_latest_emails.
 - If the user asks to find a specific received email, use gmail_search_email_message.
 - If the user asks for a draft/borrador, prefer Gmail draft tools over received-email tools.
+- If the user asks to create multiple drafts/emails at once, use gmail_create_multiple_email_drafts, not gmail_create_email_draft.
+- gmail_create_multiple_email_drafts creates drafts only; it never sends emails.
+- Do not send multiple drafts or multiple emails in one tool call.
+- If the user asks to send multiple drafts/emails at once, do not use a sending tool. Jarvis should explain that sending must be done one at a time for safety.
 
 Return only valid JSON. Do not include markdown. Do not explain anything.
 
-If get_current_time is needed, return:
-{
-  "needs_tool": true,
-  "tool_name": "get_current_time",
-  "arguments": {}
-}
 
-If no tool is needed, return:
-{
-  "needs_tool": false,
-  "tool_name": null,
-  "arguments": {}
-}
 """
 
 def parse_tool_intent_response(response_text: str) -> ToolIntent:
@@ -313,7 +373,7 @@ def parse_tool_intent_response(response_text: str) -> ToolIntent:
             arguments={}
         )
     
-    if intent.tool_name not in ["get_current_time", "read_unread_emails", "gmail_send_email_message", "read_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email"]:
+    if intent.tool_name not in ["get_current_time", "read_unread_emails", "gmail_send_email_message", "read_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts"]:
         raise ValueError("Unknown tool")
     
     return intent

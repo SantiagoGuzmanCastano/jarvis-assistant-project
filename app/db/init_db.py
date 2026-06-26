@@ -16,6 +16,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_settings import UserSettings
 from app.models.external_account import ExternalAccount
+from app.models.generic_tool_state import ConversationToolState
+
 
 def create_db_tables():
     Base.metadata.create_all(bind=engine)

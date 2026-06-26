@@ -1,8 +1,9 @@
 from fastapi import HTTPException,status
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, insert
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation
+from app.models.generic_tool_state import ConversationToolState
 from app.models.message import Message
 
 def create_conversation(user_id: int, title: str, session: Session):
@@ -83,5 +84,37 @@ def delete_conversation_messages(conversation_id: int, session: Session):
 
     query = delete(Message).where(
     Message.conversation_id == conversation_id)
+    session.execute(query)
+    session.commit()
+
+
+def create_tool_state(payload: list, user_id: int, session: Session, conversation_id: int):
+    
+    new_tool_state = ConversationToolState(
+        user_id=user_id,
+        conversation_id= conversation_id,
+        payload_json=payload
+    )
+
+    session.add(new_tool_state)
+    session.commit()
+    session.refresh(new_tool_state)
+
+    return new_tool_state
+
+
+def get_tool_payload(user_id: int, session: Session, conversation_id: int):
+    query = select(ConversationToolState.payload_json).where(
+        ConversationToolState.user_id == user_id,
+        ConversationToolState.conversation_id == conversation_id,
+    )
+
+    return session.scalars(query).first()
+
+def delete_tool_state(user_id: int, conversation_id: int,session: Session):
+    query = delete(ConversationToolState).where(
+        ConversationToolState.user_id == user_id,
+        ConversationToolState.conversation_id == conversation_id,
+    )
     session.execute(query)
     session.commit()

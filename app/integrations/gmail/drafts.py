@@ -94,6 +94,10 @@ def fetch_gmail_drafts(access_token: str, max_results: int):
         fetched_draft_email = fetch_gmail_draft_metadata(access_token=access_token, draft_id=draft["id"])
         draft_list.append(fetched_draft_email)
 
+    counter = 0
+    for draft in draft_list:
+        print(f"{counter} ------->>>>>>>>> {draft}")
+        counter +=1
     return draft_list
 
 # [
@@ -170,7 +174,7 @@ def send_gmail_draft(draft_id:str, access_token: str):
     headers=headers,
     json=payload)
     response.raise_for_status()
-    
+    return response.json()
 
 # --------------SEARCH DRAFT---------------
 
