@@ -1,11 +1,44 @@
 
 
+from datetime import date, datetime, time, timedelta
+from email.utils import parseaddr, parsedate_to_datetime
+from zoneinfo import ZoneInfo
+
 import requests
 
-# --------------UNREAD---------------
+from app.integrations.gmail.drafts import normalize_text
 
-GOOGLE_EMAILID_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
+#---------------FETCH IDS---------------
+# region fetch ids
 
+def build_gmail_search_query(
+    sender_hint: str,
+    search_keywords: list[str],
+    date_hint: str | None,
+) -> str:
+    query_parts = []
+
+    if sender_hint:
+        if "@" in sender_hint:
+            query_parts.append(f"from:{sender_hint}")
+        else:
+            sender_words = sender_hint.split()
+            if sender_words:
+                query_parts.append(f"({' OR '.join(sender_words)})")
+
+    if search_keywords:
+        query_parts.append(f"({' OR '.join(search_keywords)})")
+
+    if date_hint:
+        requested_date = date.fromisoformat(date_hint)
+        timezone = ZoneInfo("America/Bogota")
+        start = datetime.combine(requested_date, time.min, tzinfo=timezone)
+        end = start + timedelta(days=1)
+
+        query_parts.append(f"after:{int(start.timestamp())}")
+        query_parts.append(f"before:{int(end.timestamp())}")
+
+    return " ".join(query_parts)
 
 def fetch_unread_gmail_messages_ids(access_token: str, max_results: int):
 
@@ -19,8 +52,6 @@ def fetch_unread_gmail_messages_ids(access_token: str, max_results: int):
         "q": query,
         "maxResults": max_results,
     }
-    #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
-    #is:unread significa: solo correos no leídos.
 
     response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
     response.raise_for_status()
@@ -40,14 +71,79 @@ def fetch_unread_gmail_messages_ids(access_token: str, max_results: int):
 #   ],
 #   "resultSizeEstimate": 2
 # }
-
     #https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5
+
+
+def fetch_latest_gmail_messages_ids(access_token: str, max_results: int):
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    query = "category:primary"
+
+    params={
+        "q": query,
+        "maxResults": max_results,
+    }
+
+
+    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query: str):
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params = {
+        "q": query,
+        "labelIds": ["INBOX"],
+        "maxResults": max_results,
+    }
+
+    #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
+    #is:unread significa: solo correos no leídos.
+
+    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
+    print("QUERY:", repr(query))
+    print("URL:", response.url)
+    print("RESPONSE:", response.json())
+
+    response.raise_for_status()
+    return response.json()
+
+# {
+#   "messages": [
+#     {
+#       "id": "18fabc1234567890",
+#       "threadId": "18fabc9999999999"
+#     },
+#     {
+#       "id": "18fabc9876543210",
+#       "threadId": "18fabc8888888888"
+#     }
+#   ],
+#   "resultSizeEstimate": 2
+# }
+
+
+# endregion
+
+# --------------UNREAD---------------
+# region unread
+GOOGLE_EMAILID_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 
 
 GOOGLE_MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 
 
-def fetch_gmail_message_metadata(message_id: str, access_token: str):
+def fetch_metadata_FSD_gmail_message(message_id: int, access_token: str):
 
     headers = {
         "Authorization": f"Bearer {access_token}"
@@ -83,7 +179,7 @@ def fetch_unread_gmail_messages(access_token:str, max_results: int):
 
     message_list = []
     for message in data.get("messages",[]):
-        fetched_email = fetch_gmail_message_metadata(message_id=message["id"], access_token=access_token)
+        fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
         message_list.append(fetched_email)
 
     return message_list
@@ -115,88 +211,74 @@ def fetch_unread_gmail_messages(access_token:str, max_results: int):
     #   }
     # ]
 
-
+# endregion
 
 # --------------LATEST---------------
-
-
-
-def fetch_latest_gmail_messages_ids(access_token: str, max_results: int):
-
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-
-    query = "category:primary"
-
-    params={
-        "q": query,
-        "maxResults": max_results,
-    }
-    #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
-    #is:unread significa: solo correos no leídos.
-
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-
-    response.raise_for_status()
-
-    return response.json()
-
+# region latest
 
 def fetch_latest_gmail_messages(access_token:str, max_results: int):
     data = fetch_latest_gmail_messages_ids(access_token=access_token, max_results=max_results)
 
     message_list = []
     for message in data.get("messages",[]):
-        fetched_email = fetch_gmail_message_metadata(message_id=message["id"], access_token=access_token)
+        fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
         message_list.append(fetched_email)
 
     return message_list
 
-
+# endregion
 
 # --------------SEARCH---------------
+# region search
 
-
-def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query: str):
-
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-
-    params={
-        "q": query,
-        "maxResults": max_results,
-    }
-    #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
-    #is:unread significa: solo correos no leídos.
-
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-
-    response.raise_for_status()
-    return response.json()
-
-# {
-#   "messages": [
-#     {
-#       "id": "18fabc1234567890",
-#       "threadId": "18fabc9999999999"
-#     },
-#     {
-#       "id": "18fabc9876543210",
-#       "threadId": "18fabc8888888888"
-#     }
-#   ],
-#   "resultSizeEstimate": 2
-# }
-
-def fetch_specific_gmail_message(access_token:str, max_results: int, query: str):
+def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, query: str):
+    print("\nquery:")
+    print(query)
     data = fetch_specific_gmail_messages_id(access_token=access_token, max_results=max_results, query=query)
 
     message_list = []
     for message in data.get("messages",[]):
-        fetched_email = fetch_gmail_message_metadata(message_id=message["id"], access_token=access_token)
-        message_list.append(fetched_email)
+        fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
+
+        message_headers = fetched_email["payload"]["headers"]
+
+        
+        sender = ""
+        subject = ""
+        date = ""
+        normalized_date = ""
+
+        for header in message_headers:
+            header_name = header.get("name", "").lower()
+            header_value = header.get("value", "")
+
+            if header_name == "from":
+                sender = header_value
+            elif header_name == "subject":
+                subject = header_value
+            elif header_name == "date":
+                date = header_value
+
+        if date:
+            try:
+                parsed_date = parsedate_to_datetime(date)
+                normalized_date = parsed_date.astimezone(
+                    ZoneInfo("America/Bogota")
+                ).date().isoformat()
+            except (TypeError, ValueError, OverflowError):
+                normalized_date = ""
+                
+
+        message_list.append({
+            "message_id": fetched_email["id"],
+            "thread_id": fetched_email["threadId"],
+            "sender": sender,
+            "subject": subject,
+            "date": date,
+            "date_iso": normalized_date,
+            "snippet": fetched_email.get("snippet", ""),
+        })
+
 
     return message_list
 
@@ -215,3 +297,315 @@ def fetch_specific_gmail_message(access_token:str, max_results: int, query: str)
 #     }
 #   }
 # ]
+
+
+
+# endregion
+
+# --------------READ EMAIL MESSAGES---------------
+# region read
+# 
+def fetch_full_latest_gmail_messages(access_token: str, max_results: int):
+
+    message_list = fetch_latest_gmail_messages(
+        access_token=access_token,
+        max_results=max_results,
+    )
+
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params = {
+        "format": "full",
+        "maxResults": max_results
+    }
+
+    latest_emails = []
+
+    for message in message_list:
+        message_id = message["id"]
+
+        response = requests.get(
+            f"{GOOGLE_MESSAGES_URL}/{message_id}",
+            headers=headers,
+            params=params,
+        )
+
+        response.raise_for_status()
+        latest_emails.append(response.json())
+
+    return latest_emails
+
+def fetch_full_specific_gmail_messages_metadata(access_token: str, message_id: int):
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params={
+        "format":"full"
+    }
+    #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
+    #is:unread significa: solo correos no leídos.
+
+    response = requests.get(
+            f"{GOOGLE_MESSAGES_URL}/{message_id}",
+            headers=headers,
+            params=params,
+        )
+
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_full_specific_gmail_messages(access_token: str, max_results: int, query: str):
+    data = fetch_specific_gmail_messages_id(access_token=access_token, max_results=max_results, query=query)
+
+    if not data.get("messages",[]):
+        return None
+
+    message_list = []
+    for message in data.get("messages",[]):
+        message_id = message["id"]
+        full_email = fetch_full_specific_gmail_messages_metadata(access_token=access_token, message_id=message_id)
+        message_list.append(full_email)
+
+    print("counter")
+    
+    return message_list
+
+# endregion
+
+# --------------FOR CREATE DRAFT REPLY: ---------------
+# region create draft reply
+
+def fetch_metadata_MORE_gmail_message(access_token: str, message_id: int):
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params = {
+    "format": "metadata",
+    "metadataHeaders": [
+        "From",
+        "Reply-To",
+        "Subject",
+        "Date",
+        "Message-ID",
+        "References",
+        ],
+    }
+
+    response = requests.get(f"{GOOGLE_MESSAGES_URL}/{message_id}", headers=headers, params=params)
+    response.raise_for_status()
+    return response.json()
+
+
+# {
+#   "id": "19efb59f8a1e7535",
+#   "threadId": "19efb404e41cf513",
+#   "labelIds": ["UNREAD", "INBOX"],
+#   "snippet": "Hola, quería confirmar la reunión...",
+#   "payload": {
+#     "mimeType": "text/plain",
+#     "headers": [
+#       {
+#         "name": "From",
+#         "value": "Pedro <pedro@example.com>"
+#       },
+#       {
+#         "name": "Reply-To",
+#         "value": "pedro@example.com"
+#       },
+#       {
+#         "name": "Subject",
+#         "value": "Reunión de mañana"
+#       },
+#       {
+#         "name": "Message-Id",
+#         "value": "<abc123@mail.gmail.com>"
+#       },
+#       {
+#         "name": "References",
+#         "value": "<previous-message@mail.gmail.com>"
+#       }
+#     ]
+#   },
+#   "internalDate": "1782333438000"
+# }
+
+
+def search_latest_gmail_messages_for_metadata(access_token:str, max_results: int):
+    data = fetch_latest_gmail_messages_ids(access_token=access_token, max_results=max_results)
+
+    message_list = []
+    for message in data.get("messages",[]):
+        fetched_email = fetch_metadata_MORE_gmail_message(message_id=message["id"], access_token=access_token)
+        message_list.append(fetched_email)
+    return message_list
+
+
+
+#################### SPECIFIC ########################
+
+def fetch_specific_gmail_message_format_MORE(access_token:str, max_results: int, query: str):
+    data = fetch_specific_gmail_messages_id(access_token=access_token, max_results=max_results, query= query)
+
+    message_list = []
+    for message in data.get("messages",[]):
+        fetched_email = fetch_metadata_MORE_gmail_message(message_id=message["id"], access_token=access_token)
+        
+        from_email = ""
+        reply_to_email = ""
+        subject = ""
+        references = ""
+        original_message_id = ""
+        date = ""
+        date_iso = ""
+        sender = ""
+
+        headers = fetched_email.get("payload", {}).get("headers", [])
+
+        for header in headers:
+            header_name = header.get("name", "").lower()
+            header_value = header.get("value", "")
+
+            if header_name == "from":
+                sender = header_value
+                _, from_email = parseaddr(header_value)
+            elif header_name == "reply-to":
+                _, reply_to_email = parseaddr(header_value)
+            elif header_name == "subject":
+                subject = header_value
+            elif header_name == "message-id":
+                original_message_id = header_value
+            elif header_name == "references":
+                references = header_value
+            elif header_name == "date":
+                date = header_value
+
+        if date:
+            try:
+                parsed_date = parsedate_to_datetime(date)
+                date_iso = parsed_date.astimezone(
+                    ZoneInfo("America/Bogota")
+                ).date().isoformat()
+            except (TypeError, ValueError, OverflowError):
+                date_iso = ""
+
+        recipient_email = reply_to_email or from_email
+        references = f"{references} {original_message_id}".strip()
+
+        message_list.append({
+            "thread_id": fetched_email["threadId"],
+            "sender": sender,
+            "original_message_id": original_message_id,
+            "references": references,
+            "recipient_email": recipient_email,
+            "subject": subject,
+            "date": date,
+            "date_iso": date_iso,
+            "snippet": fetched_email.get("snippet", ""),
+        })
+
+    return message_list
+
+
+# {
+#   "id": "19efb59f8a1e7535",
+#   "threadId": "19efb404e41cf513",
+#   "labelIds": ["UNREAD", "INBOX"],
+#   "snippet": "Hola, quería confirmar la reunión...",
+#   "payload": {
+#     "mimeType": "text/plain",
+#     "headers": [
+#       {
+#         "name": "From",
+#         "value": "Pedro <pedro@example.com>"
+#       },
+#       {
+#         "name": "Reply-To",
+#         "value": "pedro@example.com"
+#       },
+#       {
+#         "name": "Subject",
+#         "value": "Reunión de mañana"
+#       },
+#       {
+#         "name": "Message-Id",
+#         "value": "<abc123@mail.gmail.com>"
+#       },
+#       {
+#         "name": "References",
+#         "value": "<previous-message@mail.gmail.com>"
+#       }
+#     ]
+#   },
+#   "internalDate": "1782333438000"
+# }
+
+# endregion
+
+
+
+
+
+def score_gmail_message_candidates(emails_found: list, sender_hint: str, search_keywords: list, date_hint, ):
+    
+    sender_hint = normalize_text(sender_hint)
+    search_keywords = [
+        normalize_text(word)
+        for word in search_keywords
+    ]
+
+    matches = []
+
+    for email in emails_found:
+        score = 0
+
+        sender = normalize_text(email["sender"])
+        subject = normalize_text(email["subject"])
+        snippet = normalize_text(email["snippet"])
+
+        sender_matches = not sender_hint or sender_hint in sender
+        date_matches = not date_hint or date_hint == email["date_iso"]
+        keyword_matches = not search_keywords
+
+        if sender_hint and sender_matches:
+            score += 2
+
+        for keyword in search_keywords:
+            if keyword in subject:
+                score += 3
+                keyword_matches = True
+            if keyword in snippet:
+                score += 1
+                keyword_matches = True
+
+        if date_hint and date_matches:
+            score += 1
+
+        if sender_matches and keyword_matches and date_matches:
+            matches.append({
+                "email": email,
+                "score": score,
+            })
+
+    matches.sort(key=lambda match: match["score"], reverse=True)
+
+    return ({
+        "emails_found": len(matches),
+        "matches": matches
+    })
+
+
+def score_gmail_message_candidates_MORE(emails_found: list, sender_hint: str, search_keywords: list, date_hint, ):
+    return score_gmail_message_candidates(
+        emails_found=emails_found,
+        sender_hint=sender_hint,
+        search_keywords=search_keywords,
+        date_hint=date_hint,
+    )

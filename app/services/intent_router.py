@@ -10,11 +10,7 @@ def detect_tool_intent(last_message_content: str, recent_messages_content_list: 
     conversation_content = build_intent_input(last_message_content=last_message_content, recent_messages_content_list= recent_messages_content_list)
     tool_response = generate_gemini_intent_response(conversation_content=conversation_content, system_intent_prompt=system_intent_prompt)
 
-    print("RECENT CONTEXT MESSAGE LIST:")
-    print(recent_messages_content_list)
-    print("")
-
-    print("CONVERSATION CONTEXT RESPONSE:",)
+    print("\nCONVERSATION CONTEXT RESPONSE:",)
     
     for message_dict in recent_messages_content_list:
       role = message_dict["role"]
@@ -22,9 +18,9 @@ def detect_tool_intent(last_message_content: str, recent_messages_content_list: 
       print("--------------------------------------------------------")
       print(f"{role}: {text}")
     print("--------------------------------------------------------")
-    print("")
-    print("RAW TOOL RESPONSE:", tool_response)
+    print("\nRAW TOOL RESPONSE:", tool_response)
     print("END RAW TOOL RESPONSE")
+    print("\n")
 
     return parse_tool_intent_response(response_text=tool_response)
 
@@ -74,9 +70,9 @@ Do not select a tool for an older message unless the latest user message refers 
 Available tools:
 - get_current_time: use when the user asks for the current time, current date, today's date, or any time/date-related information.
 
-- read_unread_emails: use when the user asks to read, check, list, or summarize unread Gmail emails.
+- get_unread_emails: use when the user asks whether they have new, unread, or pending Gmail emails, or asks to check or list unread emails. This tool returns basic information, not the complete email body.
 
-- read_latest_emails: use when the user asks to read, check, list, or summarize latest/recent Gmail emails, regardless of whether they are read or unread.
+- get_latest_emails: use when the user asks to check or list their latest/recent Gmail emails, regardless of whether they are read or unread. This tool returns basic information, not the complete email body.
 
 - gmail_search_email_message: use when the user asks to search for a specific Gmail email by sender, subject, topic, keyword, date, or content.
 
@@ -84,62 +80,96 @@ Available tools:
 
 - gmail_create_email_draft: use when the user asks to create, prepare, write, compose, or draft a new email without sending it.
 
-- gmail_search_drafted_emails: use when the user asks to find, search, look for, read, check, send, update, or inspect a specific Gmail draft/borrador.
+- gmail_search_drafted_emails: use when the user asks to find, search, look for, read, check or inspect a specific Gmail draft/borrador.
 
 - gmail_send_drafted_email: use when the user clearly asks to send an existing Gmail draft/borrador.
 
 - gmail_create_multiple_email_drafts: use when the user asks to create multiple Gmail drafts/emails at once.
 
-For read_unread_emails:
+- gmail_read_latest_email: use only when the user explicitly asks to read, open, show, or summarize the complete content of their latest or penultimate Gmail email.
+
+- gmail_read_specific_email: use when the user explicitly asks to read, open, show, or summarize the complete content of a specific received Gmail email.
+
+- gmail_create_reply_draft: use when the user asks to create, write, prepare, or draft a reply to an existing received Gmail email.
+
+
+
+For get_unread_emails:
+- Use it to check or list unread emails.
+- If the user asks whether they have new emails, use this tool.
 - If the user asks for a specific number of unread emails, set max_results to that number.
 - If the user asks for the latest unread email, last unread email, or most recent unread email, set max_results to 1.
 - If the user does not specify a number, set max_results to 3.
 - Never set max_results below 1 or above 5.
+- Do not use this tool to read the complete email body.
 
-If read_unread_emails is needed, return:
+If get_unread_emails is needed, return:
 {
   "needs_tool": true,
-  "tool_name": "read_unread_emails",
+  "tool_name": "get_unread_emails",
   "arguments": {
     "max_results": 3
   }
 }
 
-For read_latest_emails:
+For get_latest_emails:
+- Use it to check or list recent emails.
+- Use it when the user asks what emails recently arrived.
 - If the user asks for a specific number of latest/recent emails, set max_results to that number.
 - If the user asks for the latest email, last email, newest email, or most recent email, set max_results to 1.
 - If the user does not specify a number, set max_results to 3.
 - Never set max_results below 1 or above 5.
-- Use read_latest_emails when the user does not specifically say unread.
+- Use get_latest_emails when the user does not specifically say unread.
+- Do not use this tool when the user explicitly asks to read the complete email body.
 
-If read_latest_emails is needed, return:
+If get_latest_emails is needed, return:
 {
   "needs_tool": true,
-  "tool_name": "read_latest_emails",
+  "tool_name": "get_latest_emails",
   "arguments": {
     "max_results": 3
   }
 }
 
 For gmail_search_email_message:
-- Use it when the user asks to find/search/look for a specific email.
-- Build a Gmail search query using the most important words from the user's request.
-- Include sender names, email addresses, subject words, keywords, and dates when present.
-- Do not include filler words like "busca", "correo", "email", "que me mandó", "sobre", "el", "la", "de", "un", "una".
-- If the user asks for one specific email, set max_results to 5.
-- If the user asks for the first/best/latest matching email, set max_results to 1.
-- Never set max_results below 1 or above 5.
+- Use it when the user asks to find, search, or look for a specific received Gmail email.
+- The backend builds the Gmail query, retrieves candidates, and scores them.
+- Extract sender_hint when the user mentions a sender name, company name, or email address.
+- Preserve the original spelling, capitalization, accents, and special characters in sender_hint.
+- Never infer or invent an email address.
+- Extract search_keywords only from topics, subject words, or content details mentioned by the user.
+- Do not add sender_hint words to search_keywords.
+- Preserve accents and original spelling in search_keywords.
+- Expand search_keywords with useful singular, plural, accented, and unaccented variants.
+- Keep every keyword variant as a separate item.
+- Extract date_hint when the user explicitly mentions a date.
+- Format date_hint as YYYY-MM-DD.
+- If no date is mentioned, set date_hint to null.
+- Do not include filler words such as "busca", "correo", "email", "que me mandó", "sobre", "el", "la", "de", "un", or "una".
+- Do not invent sender names, dates, topics, or keywords.
+- Set max_results to 10
+- Before returning JSON, verify:
+  - sender_hint words do not appear in search_keywords.
+  - date_hint is null when no date was provided.
 
 If gmail_search_email_message is needed, return:
 {
   "needs_tool": true,
   "tool_name": "gmail_search_email_message",
   "arguments": {
-    "query": "nelson prórroga contrato",
-    "max_results": 5
+    "sender_hint": "Hernán",
+    "search_keywords": [
+      "prórroga",
+      "prorroga",
+      "prórrogas",
+      "prorrogas",
+      "contrato",
+      "contratos"
+    ],
+    "date_hint": "2026-06-18",
+    "max_results": 10
   }
 }
-
 
 For gmail_create_email_draft:
 - Use it when the user asks to create, prepare, write, compose, or draft a new email.
@@ -168,7 +198,7 @@ For gmail_search_drafted_emails:
 - Use it when the user asks for a specific draft or borrador.
 - Extract recipient_hint when the user mentions who the draft is for.
 - Extract subject_keywords when the user mentions the topic, title, or subject of the draft.
-- Extract body_keywords when the user mentions content that may be inside the draft body.
+- Extract snippet_keywords when the user mentions content that may be inside the draft body.
 - If the user asks for the latest/recent draft without specific details, leave recipient_hint as null and use empty keyword lists.
 - If the user asks for one specific draft, set max_results to 10.
 - If the user asks for latest/recent draft, set max_results to 5.
@@ -220,7 +250,6 @@ For gmail_send_drafted_email:
 - In that case, do not extract keywords; return selected_result_index instead.
 - Do not translate "first", "second", "third", or "last" into max_results when the user is selecting from a previous list.
 - For sending an existing draft, set max_results to 10 by default.
-- Only set max_results to 1 if the user explicitly asks to send the latest/most recent Gmail draft in general and is not selecting from a previous list.
 - If the draft cannot be identified safely from the message or recent conversation, do not use the tool.
 - This tool can send only one Gmail draft at a time.
 - If the user asks to send multiple drafts at once, do not use this tool.
@@ -299,6 +328,314 @@ If gmail_create_multiple_email_drafts is needed, return:
   }
 }
 
+For gmail_read_latest_email:
+- Use it only when the user explicitly asks to read, open, show, or summarize the complete content of recent Gmail emails.
+- If the user asks to read the latest email, use recent_email_position: 1.
+- If the user asks to read the penultimate email, use recent_email_position: 2.
+- If the user asks to read the antepenultimate email, use recent_email_position: 3 and so on...
+- recent_email_position is zero-based and can only be 0 or 1.
+- When recent_email_position is used, return only the selected email.
+- If the user asks to read the latest two emails, set max_results to 2.
+- If no quantity or position is specified, set max_results to 1.
+- max_results can only be 1 or 2.
+- Do not use this tool merely to check whether new or recent emails exist.
+
+If gmail_read_latest_email is needed for one or two recent emails, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_latest_email",
+  "arguments": {
+    "max_results": 2
+  }
+}
+
+If a specific recent email position is requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_latest_email",
+  "arguments": {
+    "recent_email_position": 1
+  }
+}
+
+For gmail_read_specific_email:
+- Use it only when the user explicitly asks to read, open, show, or summarize the complete content of a specific received Gmail email.
+- This tool searches for the email and then reads its complete body.
+- Do not use it merely to search or list emails. Use gmail_search_email_message instead.
+- Do not use it for drafts.
+- Do not use it for the latest or penultimate email unless the user also identifies it by sender, topic, keywords, or date.
+- Recover identifying details from the recent conversation when the user says "léelo", "abre ese", "ese correo", or similar.
+- Always return query as a single string, never as a list.
+- This tool supports reading only one complete email per request.
+- Never silently ignore additional requested emails.
+- If the email cannot be identified safely, do not use the tool.
+
+For searching the specific email:
+- Extract sender_hint when the user mentions a sender name or email address.
+- Preserve original spelling, capitalization, accents, and special characters.
+- Extract search_keywords from topics, possible subject words, or content details.
+- Expand keywords with likely singular, plural, accented, and unaccented variants.
+- Keep every variant as a separate item.
+- Use OR between alternative Gmail search terms.
+- Use general search terms instead of subject: because keywords may appear in either the subject or message content.
+- Only use subject: when the user explicitly provides the exact subject.
+- If sender_hint is present, query MUST include a from: condition.
+- When a sender name contains accents, include accented and unaccented variants using OR.
+- If sender_hint is an email address, use the exact email address.
+- Do not add from: when sender_hint is empty.
+- Extract date_hint when the user mentions a specific date.
+- Format date_hint as YYYY-MM-DD.
+- If no date is mentioned, set date_hint to null.
+- Include after: and before: operators in query when applicable.
+- Remove filler words such as "lee", "correo", "email", "muéstrame", "abre", "sobre", "el", "la", "de", and "y".
+- Do not invent sender names, email addresses, dates, or keywords.
+- Set max_results to 5 so the backend has enough candidates to score.
+
+If one specific email is requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_email",
+  "arguments": {
+    "query": "(from:\"Hernán\" OR from:Hernan) (prórroga OR prorroga OR prórrogas OR prorrogas OR contrato OR contratos) after:2026/06/17 before:2026/06/19",
+    "sender_hint": "Hernán",
+    "search_keywords": [
+      "prórroga",
+      "prorroga",
+      "prórrogas",
+      "prorrogas",
+      "contrato",
+      "contratos"
+    ],
+    "date_hint": "2026-06-18",
+    "max_results": 5,
+  }
+}
+
+If multiple specific emails are requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_email",
+  "arguments": {
+    "requested_email_count": 2
+  }
+}
+
+For selecting a previously found email:
+- Use this flow only when the assistant previously showed multiple matching emails and the user selects one of them.
+- Check the recent conversation before interpreting phrases such as "the first", "the second", "that one", "el primero", "el segundo", "ese", or similar.
+- Include selected_result_position when the user selects from the previous list.
+- Positions start at 1.
+- selected_result_position 1 means the first email shown.
+- selected_result_position 2 means the second email shown.
+- Do not create a new query when selected_result_position is present.
+- Do not include sender_hint, search_keywords, date_hint, or max_results.
+- Do not interpret "first" or "second" as max_results.
+- The backend already stores the matching emails temporarily.
+- If no previous list exists, do not invent a selection.
+
+If selecting a previously found email, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_email",
+  "arguments": {
+    "requested_email_count": 1,
+    "selected_result_position": 1
+  }
+}
+
+- gmail_update_email_draft: use when the user asks to modify an existing Gmail draft. This tool updates one draft but does not send it.
+
+For gmail_update_email_draft:
+- Use it only when the user clearly asks to modify an existing Gmail draft.
+- This tool can update only one draft per request.
+- recipient_email, subject, and body represent the complete new draft content.
+- All three fields are required because Gmail replaces the complete draft message.
+- Do not invent missing values.
+- If a required value cannot be recovered safely, set it to null.
+- Do not use this tool to create or send a draft.
+
+Specific draft rules:
+- Use selection_type: "specific_draft" when the user identifies the draft by its current recipient or subject.
+- recipient_hint and subject_keywords describe the existing draft to find.
+- recipient_email, subject, and body contain the new replacement values.
+- Set max_results to 10.
+- Do not use the new values as search criteria.
+
+If updating a specific draft, return:
+
+{
+  "needs_tool": true,
+  "tool_name": "gmail_update_email_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "max_results": 10
+
+    "to_change_recipient_email": "recipient@example.com",
+    "to_change_subject_keywords": ["reunion"],
+
+    "new_recipient_email": "recipient@example.com",
+    "new_subject": "Email subject",
+    "new_body": "Email body"
+
+  }
+}
+
+Recent draft rules:
+- Use selection_type: "recent_draft" when the user asks to update the latest or penultimate draft.
+- recent_draft_index is zero-based.
+- The latest draft means recent_draft_index: 0.
+- The penultimate draft means recent_draft_index: 1.
+- Do not use an index above 1.
+
+If updating a recent draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_update_email_draft",
+  "arguments": {
+    "selection_type": "recent_draft",
+    "recent_draft_index": 0,
+    "recipient_email": "recipient@example.com",
+    "subject": "New subject",
+    "body": "New email body"
+  }
+}
+
+Previous result selection rules:
+- Use selected_result_index when Jarvis previously showed one or more matching drafts and asked the user to confirm or select one.
+- selected_result_index is one-based.
+- "the first", "el primero", "yes, that one", or "sí, ese" means selected_result_index: 1.
+- "the second" or "el segundo" means selected_result_index: 2.
+- Check the recent conversation before interpreting the selection.
+- Do not include selection_type, search hints, or new draft values when selected_result_index is used.
+- The backend retrieves the selected draft and pending replacement values from ConversationToolState.
+
+If selecting a previously shown draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_update_email_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "selected_result_index": 1
+  }
+}
+
+For gmail_create_reply_draft:
+- Use this tool when the user wants to respond to an existing email while keeping the response inside the original Gmail thread.
+- Examples: "create a reply to Pedro's email", "draft a response to the latest email", "respóndele al correo de Google", or "crea un borrador respondiendo ese correo".
+- This tool only creates the reply draft. It does not send it.
+- Do not use it when the user only wants to search, read, or summarize an email.
+- Do not use it to create an unrelated new email.
+- Extract reply_body from what the user wants to answer.
+- The backend obtains the recipient, subject, thread, and message references from the original email.
+- Never invent, infer, generate, complete, or improve reply_body.
+- reply_body must contain only the response content explicitly provided by the user.
+- If the user asks to create a reply draft but does not provide its content, still select this tool and set reply_body to null.
+- The backend will validate the missing reply_body and request it from the user.
+
+For recent_email:
+- Use it when the user refers to an email by recent position without selecting from a previously shown list.
+- Positions start at 1.
+- recent_email_position 1 means the latest email.
+- recent_email_position 2 means the penultimate email.
+- Do not use 0.
+
+If replying by recent position, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_create_reply_draft",
+  "arguments": {
+    "selection_type": "recent_email",
+    "recent_email_position": 1,
+    "reply_body": "Email reply body"
+  }
+}
+For specific_email:
+- Use it when the user identifies an existing email by sender, topic, possible subject words, content details, or date.
+- Build a broad Gmail query to retrieve candidates. The backend will score and order those candidates before creating the reply draft.
+- Extract sender_hint when the user mentions a sender name or email address.
+- Preserve the original spelling, capitalization, accents, and special characters in sender_hint.
+- Extract search_keywords from important topics, possible subject words, or content details mentioned by the user.
+- Preserve accents and original spelling in search_keywords.
+- The backend will normalize sender_hint and search_keywords separately when calculating scores.
+- Expand keywords with likely singular, plural, grammatical, accented, and unaccented variants.
+- Keep every keyword variant as a separate item.
+- Use OR between alternative Gmail search terms.
+- Do not remove accents when building the Gmail query.
+- When a sender name contains accents, include both accented and unaccented variants using OR.
+- If sender_hint is an email address, use the exact email address without generating variants.
+- Use general search terms instead of subject: because the keywords may appear in either the subject or message content.
+- Only use an exact subject search when the user explicitly provides the exact subject.
+- Do not add from: when sender_hint is empty.
+- Extract date_hint when the user mentions a specific date.
+- Format date_hint as YYYY-MM-DD.
+- If no date is mentioned, set date_hint to null.
+- Include Gmail date operators such as after: or before: in query when applicable.
+- Extract reply_body only from the response content explicitly provided by the user.
+- Never invent, infer, generate, complete, or improve reply_body.
+- If reply_body is missing, set it to null.
+- Do not include filler words such as "busca", "correo", "email", "que me mandó", "sobre", "el", "la", "de", "un", or "una".
+- Do not invent sender names, email addresses, dates, or keywords.
+- At least sender_hint or search_keywords must contain identifying information.
+- Set max_results to 10 so the backend has enough candidates to score.
+- query is always required for specific_email.
+- If sender_hint is not empty, query MUST contain a from: condition for that sender.
+- When sender_hint contains accents, query must include both forms:
+  (from:"accented name" OR from:"unaccented name")
+- When sender_hint is present, never place it in query only as a plain keyword.
+- Before returning JSON, verify that sender_hint is represented by a from: condition.
+
+Examples:
+sender_hint: "Hernán"
+query: "(from:\"Hernán\" OR from:Hernan)"
+
+sender_hint: "Hernán"
+search_keywords: ["factura", "facturas"]
+query: "(from:\"Hernán\" OR from:Hernan) (factura OR facturas)"
+
+If replying to a specific email, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_create_reply_draft",
+  "arguments": {
+    "selection_type": "specific_email",
+    "max_results": 10,
+    "sender_hint": "Hernán",
+    "search_keywords": [
+      "prórroga",
+      "prorroga",
+      "prórrogas",
+      "prorrogas",
+      "contrato",
+      "contratos"
+    ],
+    "query": "(from:\"Hernán\" OR from:Hernan) (prórroga OR prorroga OR prórrogas OR prorrogas OR contrato OR contratos) after:2026/06/17 before:2026/06/19",
+    "reply_body": "Email reply body",
+    "date_hint": "2026-06-18"
+  }
+}
+
+For selecting a previous specific_email search result:
+- Use selection_type "specific_email" when the assistant previously showed multiple matching emails and the user selects one.
+- Check the recent conversation before interpreting phrases such as "the first", "the second", "that one", "el primero", "el segundo", "ese", or similar.
+- Include selected_result_position when the user selects from previously shown results.
+- Positions start at 1.
+- selected_result_position 1 means the first result shown.
+- selected_result_position 2 means the second result shown.
+- Do not include query, sender_hint, search_keywords, date_hint, max_results, or reply_body when selected_result_position is present.
+- Do not translate the selected position into max_results.
+- The backend already stores the matching emails and reply_body temporarily.
+
+If selecting a previously shown specific email, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_create_reply_draft",
+  "arguments": {
+    "selection_type": "specific_email",
+    "selected_result_position": 1
+  }
+}
+-----------------------------
+
 If get_current_time is needed, return:
 {
   "needs_tool": true,
@@ -329,18 +666,24 @@ Rules:
 - If the latest user message uses references like "it", "that", "that one", "the same", "búscalo", "envíalo", "ese", "el anterior", recover the missing details from the recent conversation when possible.
 - If the missing details cannot be recovered safely, do not use the tool.
 - Do not send an email if required email fields are missing.
-- If the user says unread, use read_unread_emails, not read_latest_emails.
-- If the user asks for recent/latest emails without saying unread, use read_latest_emails.
+- If the user asks whether they have new, unread, or pending emails, use get_unread_emails.
+- If the user explicitly says unread, use get_unread_emails, not get_latest_emails.
+- If the user asks to check or list recent/latest emails without saying unread, use get_latest_emails.
+- If the user explicitly asks to read, open, show, or summarize the complete content of the latest or penultimate email, use gmail_read_latest_email.
+- Do not use gmail_read_latest_email merely to check whether new or recent emails exist.
 - If the user asks to find a specific received email, use gmail_search_email_message.
 - If the user asks for a draft/borrador, prefer Gmail draft tools over received-email tools.
 - If the user asks to create multiple drafts/emails at once, use gmail_create_multiple_email_drafts, not gmail_create_email_draft.
 - gmail_create_multiple_email_drafts creates drafts only; it never sends emails.
 - Do not send multiple drafts or multiple emails in one tool call.
 - If the user asks to send multiple drafts/emails at once, do not use a sending tool. Jarvis should explain that sending must be done one at a time for safety.
+- Never assume that a generic request to read an email means the latest email.
+- Use gmail_read_latest_email only when the user explicitly says latest, most recent, last, penultimate, antepenultimate, último, reciente, penúltimo, or similar.
+- Use gmail_read_specific_email only when the user provides identifying information such as sender, subject, topic, keywords, or date.
+- If the user only asks to read an email without specifying a recent position or identifying information, do not select any tool.
+- In that ambiguous case, Jarvis must ask whether the user wants to read the latest email or search for a specific email.
 
 Return only valid JSON. Do not include markdown. Do not explain anything.
-
-
 """
 
 def parse_tool_intent_response(response_text: str) -> ToolIntent:
@@ -373,7 +716,7 @@ def parse_tool_intent_response(response_text: str) -> ToolIntent:
             arguments={}
         )
     
-    if intent.tool_name not in ["get_current_time", "read_unread_emails", "gmail_send_email_message", "read_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts"]:
+    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email","gmail_update_email_draft", "gmail_create_reply_draft"]:
         raise ValueError("Unknown tool")
     
     return intent

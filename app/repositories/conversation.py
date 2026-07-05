@@ -88,7 +88,7 @@ def delete_conversation_messages(conversation_id: int, session: Session):
     session.commit()
 
 
-def create_tool_state(payload: list, user_id: int, session: Session, conversation_id: int):
+def create_tool_state(payload: dict | list, user_id: int, session: Session, conversation_id: int):
     
     new_tool_state = ConversationToolState(
         user_id=user_id,

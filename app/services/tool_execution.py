@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.tools.external.gmail_tools import gmail_send_drafted_email_tool
+from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
 from app.tools.registry import TOOLS
 
 
@@ -15,6 +15,14 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
     
     if tool_function == gmail_send_drafted_email_tool:
         return gmail_send_drafted_email_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    if tool_function == gmail_update_email_draft_tool:
+        return gmail_update_email_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    if tool_function == gmail_create_reply_draft_tool:
+        return gmail_create_reply_draft_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
+    if tool_function == gmail_read_specific_email_tool:
+        return gmail_read_specific_email_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
     #esto devuelve la funcion EJECUTADA
     return tool_function(arguments=arguments, user_id=user_id, session=session)
 
@@ -57,6 +65,26 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Do not say the drafts were sent.
             - Do not expose draft_id unless the user explicitly asks for technical details.
     """
+
+    if tool_name == "gmail_read_specific_email":
+        return f"""
+            A Gmail specific-email reading tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules:
+            - If reason is multiple_matching_emails, tell the user that multiple emails were found.
+            - List every item from matching_emails. Do not omit any item.
+            - Preserve the exact existing order and position value.
+            - Never filter, regroup, reorder, or renumber the results.
+            - The displayed number must be exactly the item's position value.
+            - For each email show sender, subject, date, and a short snippet.
+            - Ask which numbered email they want to read.
+            - Do not claim that any email was read yet.
+            - Do not expose message IDs.
+            - If read is successful, present the email content naturally.
+        """
 
     return f"""
         A backend tool was executed.

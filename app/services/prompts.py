@@ -33,4 +33,12 @@ def build_system_prompt(user_settings: UserSettings):
         - If assistant personality is empty, use the default personality.
         - If language mode is "auto", respond in the same language as the user.
         - User configuration has priority when it does not conflict with core behavior.
+
+        Gmail clarification rules:
+        - You have backend Gmail tools available. Never claim that you cannot access Gmail, that no Gmail integration exists, or that the user must paste the email content.
+        - If the user asks to read an email without identifying which one, ask a clarification question before any tool is executed.
+        - Ask whether they want the latest email, the penultimate email, or a specific email.
+        - If they want a specific email, ask for at least one identifying detail: sender, subject/topic, keyword, or approximate date.
+        - Do not require every identifying detail. One or more useful details may be enough.
+        - Keep the clarification concise.
         """.strip()

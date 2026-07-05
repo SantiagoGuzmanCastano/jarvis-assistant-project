@@ -95,8 +95,25 @@ def fetch_gmail_drafts(access_token: str, max_results: int):
         draft_list.append(fetched_draft_email)
 
     counter = 0
-    for draft in draft_list:
-        print(f"{counter} ------->>>>>>>>> {draft}")
+    for index, draft in enumerate(draft_list):
+        message = draft.get("message", {})
+        headers = message.get("payload", {}).get("headers", [])
+
+        header_values = {}
+
+        for header in headers:
+            name = header.get("name", "").lower()
+            header_values[name] = header.get("value", "")
+
+        print(f"""
+        ---------------- DRAFT {index} ----------------
+        Draft ID: {draft.get("id")}
+        To: {header_values.get("to")}
+        Subject: {header_values.get("subject")}
+        Date: {header_values.get("date")}
+        Snippet: {message.get("snippet")}
+        -------------------------------------------
+        """)
         counter +=1
     return draft_list
 
@@ -260,3 +277,120 @@ def search_gmail_drafts(access_token: str,max_results: int, recipient_hint: str,
 
     matches.sort(key=lambda match: match["score"], reverse=True)
     return matches
+
+
+def search_gmail_drafts_no_snippet(access_token: str,max_results: int, recipient_hint: str, subject_keywords: list[str]):
+
+    drafted_emails=fetch_gmail_drafts(access_token=access_token, max_results=max_results)
+
+    #EL QUE RECIBE EL EMAIL
+    recipient_hint = normalize_text(recipient_hint)
+
+    normalized_subject_keywords = []
+    for word in subject_keywords:
+        normalized_subject_keywords.append(normalize_text(word))
+
+    matches = []
+    for draft in drafted_emails:
+
+        #caso que no existan
+        to = ""
+        subject = ""
+
+        score = 0
+
+        draft_id = draft["id"]
+        # snippet = draft['message']['snippet']
+
+        to_original = ""
+        subject_original = ""
+
+
+        for header in draft["message"]["payload"]['headers']:
+            if header['name'] == "To":
+                to = normalize_text(header['value'])
+                to_original = header["value"]
+            elif header['name'] == "Subject":
+                subject = normalize_text(header['value'])
+                subject_original = header["value"]
+        
+        if recipient_hint and recipient_hint in to:
+            score +=3
+
+        for word in normalized_subject_keywords:
+            if word in subject:
+                score +=3
+
+        if score > 0:
+            matches.append({
+            "draft_id":draft_id,
+            "to": to_original,
+            "subject": subject_original,
+            "score": score
+            })
+
+    matches.sort(key=lambda match: match["score"], reverse=True)
+    return matches
+
+# --------------UPDATE DRAFT---------------
+
+
+GOOGLE_UPDATEDRAFTS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
+
+
+def update_gmail_draft(access_token: str, body: str, subject: str, recipient_email: str, draft_id: int):
+
+    headers={
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    message= EmailMessage()
+    message.set_content(body)
+    message["To"] = recipient_email
+    message["Subject"] = subject
+
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+    payload = {
+        "message": {
+        "raw": encoded_message,
+        }
+    }
+
+    response = requests.put(f"{GOOGLE_UPDATEDRAFTS_URL}/{draft_id}",headers=headers,json=payload)
+    response.raise_for_status()
+    return response.json()
+
+
+# --------------CREATE DRAFT REPLY MESSAGES---------------
+
+GOOGLE_CREATEDRAFTREPLY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
+
+
+def create_draft_reply(access_token:str, thread_id: str, original_message_id: str, references: str, recipient_email: str, subject: str, body: str):
+
+    headers={
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+
+    message= EmailMessage()
+    message.set_content(body)
+    message["To"] = recipient_email
+    message["Subject"] = subject
+    message["In-Reply-To"] = original_message_id
+    message["References"] = references
+
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+    payload = {
+        "message": {
+        "raw": encoded_message,
+        "threadId": thread_id
+        }
+    }
+
+    response = requests.post(f"{GOOGLE_CREATEDRAFTREPLY_URL}",headers=headers,json=payload)
+    response.raise_for_status()
+    return response.json()
