@@ -4,6 +4,11 @@ import json
 from app.integrations.gemini_client import generate_gemini_intent_response
 from app.schemas.intent_router import ToolIntent
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+now = datetime.now(ZoneInfo("America/Bogota"))
+
 
 def detect_tool_intent(last_message_content: str, recent_messages_content_list: list) -> ToolIntent:
     system_intent_prompt= build_tool_intent_prompt()
@@ -48,10 +53,14 @@ def build_intent_input(last_message_content: str, recent_messages_content_list: 
 
 
 def build_tool_intent_prompt() -> str:
-    return """
+    return f"""
 You are an intent router for Jarvis.
 
 Your only job is to decide whether the latest user message should use one of the available backend tools.
+
+Current date and time: {now.isoformat()}""" + """User's time zone: America/Bogota.
+
+Interpret words such as today, yesterday, the day before yesterday, and tomorrow using this information.
 
 You do not answer the user directly.
 You do not execute tools.
@@ -92,25 +101,66 @@ Available tools:
 
 - gmail_create_reply_draft: use when the user asks to create, write, prepare, or draft a reply to an existing received Gmail email.
 
+- gmail_get_sent_emails: Lists the user's latest sent Gmail emails using recipient, subject, date, and snippet metadata. Supports between 1 and 5 results and does not read the complete email body.
 
+- gmail_search_sent_emails: Searches the user's sent Gmail emails by recipient, subject, keywords, or date range. Use it for specific sent emails, not for listing the latest sent emails.
+
+------------------------------------------------------------------------------------------------
 
 For get_unread_emails:
 - Use it to check or list unread emails.
 - If the user asks whether they have new emails, use this tool.
 - If the user asks for a specific number of unread emails, set max_results to that number.
 - If the user asks for the latest unread email, last unread email, or most recent unread email, set max_results to 1.
-- If the user does not specify a number, set max_results to 3.
-- Never set max_results below 1 or above 5.
+- If the user does not specify a number, set max_results to 5.
+- Never set max_results below 1 or above 15.
 - Do not use this tool to read the complete email body.
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return dates using the YYYY-MM-DD format.
+- start_date is inclusive.
+- end_date is exclusive and must represent the day after the last requested day.
+- If the user says "today", set start_date to the current date and end_date to tomorrow.
+- If the user says "yesterday", set start_date to yesterday and end_date to the current date.
+- If the user says "the day before yesterday", set start_date to two days before the current date and end_date to yesterday.
+- If the user says "N days ago", set start_date to that day and end_date to the following day.
+- For a date range, set start_date to the first requested day and end_date to the day after the last requested day.
+- If the user does not specify a date, set both values to null.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+Result limit rules:
+- If the user asks for unread emails without specifying a number, set max_results to 5.
+- If the conversation context shows that get_unread_emails was just used and the user asks to expand, broaden, or show more results, set max_results to 15.
+- Treat requests such as "show me more", "expand the search", or equivalent expressions as continuation requests only when the previous context is about unread emails.
+- Do not set max_results to 15 for unrelated requests.
+- If the user specifies an exact number, use that number.
+- Never set max_results below 1 or above 15 .
+
 
 If get_unread_emails is needed, return:
 {
   "needs_tool": true,
   "tool_name": "get_unread_emails",
   "arguments": {
-    "max_results": 3
+    "max_results": 5,
+    "start_date": "YYYY-MM-DD or null",
+    "end_date": "YYYY-MM-DD or null"
   }
 }
+
+With expand search:
+{
+  "needs_tool": true,
+  "tool_name": "get_unread_emails",
+  "arguments": {
+    "max_results": 15,
+    "start_date": "YYYY-MM-DD or null",
+    "end_date": "YYYY-MM-DD or null"
+  }
+}
+
 
 For get_latest_emails:
 - Use it to check or list recent emails.
@@ -142,15 +192,30 @@ For gmail_search_email_message:
 - Preserve accents and original spelling in search_keywords.
 - Expand search_keywords with useful singular, plural, accented, and unaccented variants.
 - Keep every keyword variant as a separate item.
-- Extract date_hint when the user explicitly mentions a date.
-- Format date_hint as YYYY-MM-DD.
-- If no date is mentioned, set date_hint to null.
 - Do not include filler words such as "busca", "correo", "email", "que me mandó", "sobre", "el", "la", "de", "un", or "una".
 - Do not invent sender names, dates, topics, or keywords.
-- Set max_results to 10
-- Before returning JSON, verify:
-  - sender_hint words do not appear in search_keywords.
-  - date_hint is null when no date was provided.
+- Set max_results to 10.
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return dates using the YYYY-MM-DD format.
+- start_date is inclusive.
+- end_date is exclusive and must represent the day after the last requested day.
+- If the user specifies one day, set start_date to that day and end_date to the following day.
+- If the user specifies a date range, set start_date to the first requested day and end_date to the day after the last requested day.
+- If the user says "today", use the current date as start_date and tomorrow as end_date.
+- If the user says "yesterday", use yesterday as start_date and the current date as end_date.
+- If the user says "the day before yesterday", use two days before the current date as start_date and yesterday as end_date.
+- If the user says "N days ago", use that day as start_date and the following day as end_date.
+- If no date is mentioned, set both start_date and end_date to null.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+Before returning JSON, verify:
+- sender_hint words do not appear in search_keywords.
+- start_date and end_date are both null when no date was provided.
+- start_date and end_date are both present when a date or range was provided.
+- end_date is later than start_date.
 
 If gmail_search_email_message is needed, return:
 {
@@ -166,7 +231,8 @@ If gmail_search_email_message is needed, return:
       "contrato",
       "contratos"
     ],
-    "date_hint": "2026-06-18",
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
     "max_results": 10
   }
 }
@@ -634,6 +700,132 @@ If selecting a previously shown specific email, return:
     "selected_result_position": 1
   }
 }
+
+
+For gmail_get_sent_emails:
+- Use it when the user asks to list or view their latest sent emails.
+- Use it only for recent sent emails when no specific recipient, subject, keyword, or date search is required.
+- If the user specifies a number of sent emails, set max_results to that number.
+- If the user asks for the latest or most recent sent email, set max_results to 1.
+- If the user does not specify a number, set max_results to 3.
+- Never set max_results below 1 or above 5.
+- Do not use this tool to read the complete email body.
+- Do not use this tool to search for a specific sent email.
+
+If gmail_get_sent_emails is needed, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_get_sent_emails",
+  "arguments": {
+    "max_results": 3
+  }
+}
+
+For gmail_search_sent_emails:
+- Use it when the user asks to find, search, or look for one or more previously sent Gmail emails.
+- Always generate the complete Gmail search query.
+- The query must always include in:sent.
+- Build a broad query so Gmail can retrieve relevant candidates.
+
+Recipient rules:
+- Extract recipient_hint when the user mentions the recipient's name, company, or email address.
+- Preserve the original spelling, capitalization, accents, and special characters.
+- Never infer or invent an email address.
+- If no recipient is mentioned, set recipient_hint to null.
+- If recipient_hint is present, represent it using a to: condition in query.
+- If it is an email address, use the exact address.
+- If it contains accents, include accented and unaccented variants using OR.
+- Never include recipient_hint as only a plain search term.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or message content mentioned by the user.
+- Do not include recipient_hint words in search_keywords.
+- Preserve the original spelling and accents.
+- Expand keywords with useful singular, plural, grammatical, accented, and unaccented variants.
+- Keep every variant as a separate list item.
+- Join alternative keyword variants with OR inside query.
+- Use general search terms instead of subject: because they may appear in the subject or message content.
+- Only use subject: when the user explicitly provides an exact subject.
+- Do not include filler words such as "busca", "correo", "email", "enviado", "que le mandé", "sobre", "el", "la", "de", "un", or "una".
+- If no topic or content information is mentioned, set search_keywords to an empty list.
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- Use YYYY/MM/DD inside the Gmail query.
+- start_date is inclusive.
+- end_date is exclusive and represents the day after the last requested day.
+- For one requested day, set start_date to that day and end_date to the following day.
+- For a date range, set start_date to the first requested day and end_date to the day after the final requested day.
+- Convert relative expressions such as today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- Include after:start_date and before:end_date in query when dates are provided.
+- If no date is mentioned, set both values to null and do not add date operators.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+Result limit rules:
+- If the user starts a new sent-email search and does not specify a number, set max_results to 5.
+- If the user specifies an exact number between 1 and 15, use that number.
+- Never set max_results below 1 or above 15.
+- If the conversation context shows that gmail_search_sent_emails was just used and the user asks to expand, broaden, show more results, or continue the search, set max_results to 15.
+- Treat expressions such as "show me more", "expand the search", "amplía la búsqueda", or equivalent expressions as continuation requests only when the previous context is about a sent-email search.
+- When expanding a previous search, copy recipient_hint, search_keywords, start_date, end_date, and query exactly from the previous search.
+- When expanding, change only max_results to 15.
+- Do not regenerate, modify, broaden, or remove conditions from query during expansion.
+- Do not use the expansion behavior for an unrelated or new search.
+
+General rules:
+- Set max_results to 5 by default.
+- query is always required.
+- At least recipient_hint, search_keywords, or a date range must identify the requested sent emails.
+- Do not invent recipients, topics, dates, or keywords.
+
+Before returning JSON, verify:
+- query begins with or contains in:sent.
+- If recipient_hint is present, query contains a to: condition.
+- recipient_hint words do not appear in search_keywords.
+- start_date and end_date are both null when no date was provided.
+- start_date and end_date are both present when a date was provided.
+- end_date is later than start_date.
+- Every provided argument is represented correctly in query.
+- For a new search without a requested quantity, max_results is 5.
+- For an expansion request, max_results is 15 and every other argument is identical to the previous search.
+
+If gmail_search_sent_emails is needed, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_search_sent_emails",
+  "arguments": {
+    "recipient_hint": "María",
+    "search_keywords": [
+      "reunión",
+      "reunion",
+      "reuniones"
+    ],
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "max_results": 5,
+    "query": "in:sent (to:\"María\" OR to:Maria) (reunión OR reunion OR reuniones) after:2026/06/26 before:2026/06/30"
+  }
+}
+
+If expanding the previous gmail_search_sent_emails search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_search_sent_emails",
+  "arguments": {
+    "recipient_hint": "María",
+    "search_keywords": [
+      "reunión",
+      "reunion",
+      "reuniones"
+    ],
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "max_results": 15,
+    "query": "in:sent (to:\"María\" OR to:Maria) (reunión OR reunion OR reuniones) after:2026/06/26 before:2026/06/30"
+  }
+}
 -----------------------------
 
 If get_current_time is needed, return:
@@ -716,7 +908,7 @@ def parse_tool_intent_response(response_text: str) -> ToolIntent:
             arguments={}
         )
     
-    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email","gmail_update_email_draft", "gmail_create_reply_draft"]:
+    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email","gmail_update_email_draft", "gmail_create_reply_draft", "gmail_get_sent_emails", "gmail_search_sent_emails"]:
         raise ValueError("Unknown tool")
     
     return intent

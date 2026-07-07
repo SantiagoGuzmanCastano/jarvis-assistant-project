@@ -1,40 +1,63 @@
 import base64
 
+from datetime import date, datetime, time
 from sqlalchemy.orm import Session
 from email.utils import parseaddr
+from zoneinfo import ZoneInfo
 
 from app.integrations.gmail.drafts import create_draft_reply, create_gmail_draft, fetch_gmail_drafts, normalize_text, search_gmail_drafts, search_gmail_drafts_no_snippet, send_gmail_draft, update_gmail_draft
-from app.integrations.gmail.messages import build_gmail_search_query, fetch_full_specific_gmail_messages, fetch_latest_gmail_messages, fetch_specific_gmail_message_format_FSD, fetch_unread_gmail_messages, fetch_full_latest_gmail_messages, score_gmail_message_candidates, score_gmail_message_candidates_MORE, search_latest_gmail_messages_for_metadata, fetch_specific_gmail_message_format_MORE
+from app.integrations.gmail.messages import build_gmail_search_query, fetch_full_specific_gmail_messages, fetch_latest_gmail_messages, fetch_specific_gmail_message_format_FSD, fetch_unread_gmail_messages, fetch_full_latest_gmail_messages, score_gmail_message_candidates, score_gmail_message_candidates_MORE, score_gmail_message_candidates_by_range, score_sent_gmail_message_candidates_by_range, search_latest_gmail_messages_for_metadata, fetch_specific_gmail_message_format_MORE
+from app.integrations.gmail.sent import fetch_sent_gmail_messages, fetch_specific_sent_gmail_messages
 from app.repositories.conversation import create_tool_state, delete_tool_state, get_tool_payload
 from app.services.external_auth_service import get_valid_google_access_token
+from typing import Any
 
 
-def format_gmail_message_metadata(message_list: list):
-    message_list_output = []
+def format_gmail_message_metadata(
+    message_data: list[dict[str, Any]] | dict[str, Any],
+) -> list[dict[str, Any]] | dict[str, Any]:
+    if isinstance(message_data, dict):
+        raw_emails = message_data.get("emails", [])
+        emails = raw_emails if isinstance(raw_emails, list) else []
+    else:
+        emails = message_data
 
-    for message in message_list:
-        headers = message["payload"]["headers"]
+    formatted_emails: list[dict[str, Any]] = []
 
-        from_value = None
-        date_value = None
-        subject_value = None
+    for message in emails:
+        headers = message.get("payload", {}).get("headers", [])
 
-        snippet = message["snippet"]
+        header_values = {
+            header.get("name", "").lower(): header.get("value")
+            for header in headers
+        }
 
-        for header in headers:
-            header_name = header.get("name", "").lower()
-            if header_name == "from":
-                from_value = header["value"]
-            if header_name == "subject":
-                subject_value = header["value"]
-            if header_name == "date":
-                date_value = header["value"]
+        date_value = header_values.get("date")
+        internal_date = message.get("internalDate")
 
-        message_list_output.append(
-            {"from": from_value, "subject": subject_value, "date": date_value, "snippet": snippet}
-        )
+        if internal_date:
+            local_datetime = datetime.fromtimestamp(
+                int(internal_date) / 1000,
+                tz=ZoneInfo("UTC"),
+            ).astimezone(ZoneInfo("America/Bogota"))
 
-    return message_list_output
+            date_value = local_datetime.isoformat()
+
+        formatted_emails.append({
+            "from": header_values.get("from"),
+            "subject": header_values.get("subject"),
+            "date": date_value,
+            "snippet": message.get("snippet"),
+        })
+
+    if isinstance(message_data, dict):
+        return {
+            **message_data,
+            "emails": formatted_emails,
+            "returned_count": len(formatted_emails),
+        }
+
+    return formatted_emails
 
 
 # --------------GET UNREAD---------------
@@ -42,11 +65,59 @@ def format_gmail_message_metadata(message_list: list):
 def get_unread_emails_tool(arguments: dict, user_id: int, session: Session):
 
     max_results = arguments.get("max_results", 3)
-    max_results = min(max(int(max_results), 1), 5)
+
+    start_date = arguments.get("start_date")
+    end_date = arguments.get("end_date")
+
+    if bool(start_date) != bool(end_date):
+        if start_date:
+            missing_argument = "end_date"
+        else:
+            missing_argument = "start_date"
+
+        return {
+            "success": False,
+            "reason": "incomplete_date_range",
+            "message": "start_date and end_date must be provided together.",
+            "missing_argument": missing_argument,
+        }
+
+    date_query = ""
+
+    if start_date and end_date:
+        try:
+            timezone = ZoneInfo("America/Bogota")
+            start_datetime = datetime.combine(
+                date.fromisoformat(start_date),
+                time.min,
+                tzinfo=timezone,
+            )
+            end_datetime = datetime.combine(
+                date.fromisoformat(end_date),
+                time.min,
+                tzinfo=timezone,
+            )
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "start_date and end_date must use YYYY-MM-DD format.",
+            }
+
+        if end_datetime <= start_datetime:
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "end_date must be later than start_date.",
+            }
+
+        date_query = (
+            f"after:{int(start_datetime.timestamp())} "
+            f"before:{int(end_datetime.timestamp())}"
+        )
+
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
-    message_list = fetch_unread_gmail_messages(
-        access_token=access_token, max_results=max_results
-    )
+    message_list = fetch_unread_gmail_messages(access_token=access_token,max_results=max_results,date_query=date_query,)
 
     # [
     #   {
@@ -61,22 +132,30 @@ def get_unread_emails_tool(arguments: dict, user_id: int, session: Session):
     #       ]
     #     }
     #   },
-    #   {
-    #     "id": "18fabc9876543210",
-    #     "threadId": "18fabc8888888888",
-    #     "snippet": "Tu factura del mes ya está disponible...",
-    #     "payload": {
-    #       "headers": [
-    #         { "name": "From", "value": "Facturación <billing@example.com>" },
-    #         { "name": "Subject", "value": "Factura disponible" },
-    #         { "name": "Date", "value": "Thu, 18 Jun 2026 08:10:00 -0500" }
-    #       ]
-    #     }
-    #   }
     # ]
 
-    message_list_output = format_gmail_message_metadata(message_list=message_list)
-    return message_list_output
+    message_list_output = format_gmail_message_metadata(message_data=message_list)
+    print("\nCorreos encontrados de ese rango de fecha:")
+    if isinstance(message_list_output, dict):
+        print(message_list_output.get("returned_count", 0))
+    else:
+        print(len(message_list_output))
+
+    if isinstance(message_list_output, dict):
+        emails = message_list_output.get("emails", [])
+
+        print(message_list_output.get("estimated_total"))
+        return {
+            "emails": emails,
+            "has_more": message_list_output.get("has_more", False),
+            "next_page_token": message_list_output.get("next_page_token"),
+        }
+
+    return {
+        "emails": message_list_output,
+        "has_more": False,
+        "next_page_token": None,
+    }
 # endregion
 
 # --------------GET LATEST---------------
@@ -118,7 +197,7 @@ def get_latest_emails_tool(arguments: dict, user_id: int, session: Session):
     # ]
 
 
-    message_list_output = format_gmail_message_metadata(message_list=message_list)
+    message_list_output = format_gmail_message_metadata(message_data=message_list)
     return message_list_output
 
 # endregion
@@ -150,7 +229,8 @@ def gmail_search_email_message_tool(arguments: dict, user_id: int, session: Sess
     search_keywords = arguments.get("search_keywords", [])
     requested_max_results = int(arguments.get("max_results", 10))
     max_results = min(max(requested_max_results, 1), 50)
-    date_hint = arguments.get("date_hint")
+    start_date = arguments.get("start_date")
+    end_date = arguments.get("end_date")
 
     normalized_sender_words = set(normalize_text(sender_hint).split())
     search_keywords = [
@@ -159,25 +239,79 @@ def gmail_search_email_message_tool(arguments: dict, user_id: int, session: Sess
         if normalize_text(keyword) not in normalized_sender_words
     ]
 
+    if bool(start_date) != bool(end_date):
+        if start_date:
+            missing_argument = "end_date"
+        else:
+            missing_argument = "start_date"
+
+        return {
+            "success": False,
+            "reason": "incomplete_date_range",
+            "message": "start_date and end_date must be provided together.",
+            "missing_argument": missing_argument,
+        }
+
+    date_query = ""
+
+    if start_date and end_date:
+        try:
+            timezone = ZoneInfo("America/Bogota")
+            start_datetime = datetime.combine(
+                date.fromisoformat(start_date),
+                time.min,
+                tzinfo=timezone,
+            )
+            end_datetime = datetime.combine(
+                date.fromisoformat(end_date),
+                time.min,
+                tzinfo=timezone,
+            )
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "start_date and end_date must use YYYY-MM-DD format.",
+            }
+
+        if end_datetime <= start_datetime:
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "end_date must be later than start_date.",
+            }
+
+        date_query = (
+            f"after:{int(start_datetime.timestamp())} "
+            f"before:{int(end_datetime.timestamp())}"
+        )
+
+
     query = build_gmail_search_query(
         sender_hint=sender_hint,
         search_keywords=search_keywords,
-        date_hint=date_hint,
+        date_hint=date_query
     )
 
 
     access_token=get_valid_google_access_token(user_id=user_id, session=session)
     emails_found = fetch_specific_gmail_message_format_FSD(access_token=access_token, query=query, max_results=max_results)
 
-    emails_found_scored = score_gmail_message_candidates(emails_found=emails_found, sender_hint=sender_hint, search_keywords=search_keywords, date_hint=date_hint)
-
     print("\nEmails found")
+    print(emails_found)
+
+    emails_found_scored = score_gmail_message_candidates_by_range(
+        emails_found=emails_found,
+        sender_hint=sender_hint,
+        search_keywords=search_keywords,
+        start_date=start_date,
+        end_date=end_date,
+)
+    print("\nEmails found Scored")
     print(emails_found_scored)
     return emails_found_scored
 
 #endregion
-
-
 
 # --------------DRAFT---------------
 # region draft
@@ -844,7 +978,6 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
 
 # endregion
     
-
 # --------------READ---------------
 # region read
 
@@ -1059,6 +1192,115 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
 
 # endregion
 
+#---------------SENT-------------
+# region sent
+
+def gmail_get_sent_emails_tool(arguments: dict ,user_id:int, session: Session):
+
+    max_results = arguments.get("max_results", 3)
+    max_results = min(max(int(max_results), 1), 5)
+    access_token = get_valid_google_access_token(user_id=user_id,session=session)
+    emails_found = fetch_sent_gmail_messages(access_token=access_token, max_results=max_results)
+
+    if not emails_found:
+        return ({
+            "emails_found": None
+        })
+
+    return ({
+        "emails_found": emails_found
+    })
+
+
+def gmail_search_sent_emails_tool(arguments: dict, user_id: int, session: Session):
+    recipient_hint = arguments.get("recipient_hint") or ""
+    search_keywords = arguments.get("search_keywords", [])
+    requested_max_results = int(arguments.get("max_results", 10))
+    max_results = min(max(requested_max_results, 1), 50)
+    start_date = arguments.get("start_date")
+    end_date = arguments.get("end_date")
+
+    normalized_recipient_words = set(normalize_text(recipient_hint).split())
+    search_keywords = [
+        keyword
+        for keyword in search_keywords
+        if normalize_text(keyword) not in normalized_recipient_words
+    ]
+
+    if bool(start_date) != bool(end_date):
+        if start_date:
+            missing_argument = "end_date"
+        else:
+            missing_argument = "start_date"
+
+        return {
+            "success": False,
+            "reason": "incomplete_date_range",
+            "message": "start_date and end_date must be provided together.",
+            "missing_argument": missing_argument,
+        }
+
+    date_query = ""
+
+    if start_date and end_date:
+        try:
+            timezone = ZoneInfo("America/Bogota")
+            start_datetime = datetime.combine(
+                date.fromisoformat(start_date),
+                time.min,
+                tzinfo=timezone,
+            )
+            end_datetime = datetime.combine(
+                date.fromisoformat(end_date),
+                time.min,
+                tzinfo=timezone,
+            )
+        except (TypeError, ValueError):
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "start_date and end_date must use YYYY-MM-DD format.",
+            }
+
+        if end_datetime <= start_datetime:
+            return {
+                "success": False,
+                "reason": "invalid_date_range",
+                "message": "end_date must be later than start_date.",
+            }
+
+
+    query = arguments.get("query", "")
+
+    if not query:
+        return ({
+            "success": False,
+            "reason": "query_not_found",
+            "message": "query not found. try again",
+            })
+
+    access_token=get_valid_google_access_token(user_id=user_id, session=session)
+    emails_found = fetch_specific_sent_gmail_messages(access_token=access_token, query=query, max_results=max_results)
+
+    print("\nEmails found:", len(emails_found))
+    print(emails_found)
+    print()
+
+    emails_found_scored = score_sent_gmail_message_candidates_by_range(
+        emails_found=emails_found["emails"],
+        recipient_hint=recipient_hint,
+        search_keywords=search_keywords,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    
+    return ({
+        "emails":emails_found_scored,
+        "has_more": emails_found["has_more"]
+        })
+# endregion
+
 #---------------EXTRAS-------------
 # region extras
 # def format_gmail_email_candidates(emails_found: list[dict]) -> list[dict]:
@@ -1119,3 +1361,4 @@ def extract_gmail_reply_context(emails: list, email_index: int):
     }
 
 # endregion
+

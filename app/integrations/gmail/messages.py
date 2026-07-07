@@ -11,11 +11,7 @@ from app.integrations.gmail.drafts import normalize_text
 #---------------FETCH IDS---------------
 # region fetch ids
 
-def build_gmail_search_query(
-    sender_hint: str,
-    search_keywords: list[str],
-    date_hint: str | None,
-) -> str:
+def build_gmail_search_query(sender_hint: str, search_keywords: list[str], date_hint: str | None,) -> str:
     query_parts = []
 
     if sender_hint:
@@ -30,23 +26,20 @@ def build_gmail_search_query(
         query_parts.append(f"({' OR '.join(search_keywords)})")
 
     if date_hint:
-        requested_date = date.fromisoformat(date_hint)
-        timezone = ZoneInfo("America/Bogota")
-        start = datetime.combine(requested_date, time.min, tzinfo=timezone)
-        end = start + timedelta(days=1)
-
-        query_parts.append(f"after:{int(start.timestamp())}")
-        query_parts.append(f"before:{int(end.timestamp())}")
+        query_parts.append(date_hint)
 
     return " ".join(query_parts)
 
-def fetch_unread_gmail_messages_ids(access_token: str, max_results: int):
+
+def fetch_unread_gmail_messages_ids(access_token: str, max_results: int, date_query: str):
 
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
 
-    query = "category:primary is:unread"
+    query = f"in:inbox category:primary is:unread {date_query}".strip()
+    print("\nDate query")
+    print(query)
 
     params={
         "q": query,
@@ -101,6 +94,8 @@ def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query:
         "Authorization": f"Bearer {access_token}"
     }
 
+    query = f"in:inbox category:primary {query}".strip()
+
     params = {
         "q": query,
         "labelIds": ["INBOX"],
@@ -143,7 +138,7 @@ GOOGLE_EMAILID_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 GOOGLE_MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 
 
-def fetch_metadata_FSD_gmail_message(message_id: int, access_token: str):
+def fetch_metadata_FSD_gmail_message(message_id: str, access_token: str):
 
     headers = {
         "Authorization": f"Bearer {access_token}"
@@ -174,15 +169,20 @@ def fetch_metadata_FSD_gmail_message(message_id: int, access_token: str):
     # }
 
     
-def fetch_unread_gmail_messages(access_token:str, max_results: int):
-    data = fetch_unread_gmail_messages_ids(access_token=access_token, max_results=max_results)
+def fetch_unread_gmail_messages(access_token:str, max_results: int, date_query: str):
+    data = fetch_unread_gmail_messages_ids(access_token=access_token, max_results=max_results, date_query = date_query)
 
     message_list = []
     for message in data.get("messages",[]):
         fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
         message_list.append(fetched_email)
 
-    return message_list
+    return {
+        "emails": message_list,
+        "estimated_total": data.get("resultSizeEstimate"),
+        "has_more": bool(data.get("nextPageToken")),
+        "next_page_token": data.get("nextPageToken"),
+    }
 
     # [
     #   {
@@ -197,18 +197,6 @@ def fetch_unread_gmail_messages(access_token:str, max_results: int):
     #       ]
     #     }
     #   },
-    #   {
-    #     "id": "18fabc9876543210",
-    #     "threadId": "18fabc8888888888",
-    #     "snippet": "Tu factura del mes ya está disponible...",
-    #     "payload": {
-    #       "headers": [
-    #         { "name": "From", "value": "Facturación <billing@example.com>" },
-    #         { "name": "Subject", "value": "Factura disponible" },
-    #         { "name": "Date", "value": "Thu, 18 Jun 2026 08:10:00 -0500" }
-    #       ]
-    #     }
-    #   }
     # ]
 
 # endregion
@@ -232,7 +220,7 @@ def fetch_latest_gmail_messages(access_token:str, max_results: int):
 # region search
 
 def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, query: str):
-    print("\nquery:")
+    print("\nquery!!!:")
     print(query)
     data = fetch_specific_gmail_messages_id(access_token=access_token, max_results=max_results, query=query)
 
@@ -553,7 +541,7 @@ def fetch_specific_gmail_message_format_MORE(access_token:str, max_results: int,
 
 
 
-def score_gmail_message_candidates(emails_found: list, sender_hint: str, search_keywords: list, date_hint, ):
+def score_gmail_message_candidates(emails_found: list, sender_hint: str, search_keywords: list, date_hint):
     
     sender_hint = normalize_text(sender_hint)
     search_keywords = [
@@ -601,6 +589,78 @@ def score_gmail_message_candidates(emails_found: list, sender_hint: str, search_
         "matches": matches
     })
 
+    #return ejemplo:
+#     {
+#     "emails_found": 2,
+#     "matches": [
+#         {
+#             "email": {
+#                 "message_id": "abc123",
+#                 "thread_id": "thread123",
+#                 "sender": "Hernán <hernan@example.com>",
+#                 "subject": "Prórroga del contrato",
+#                 "date": "Fri, 26 Jun 2026 10:30:00 -0500",
+#                 "date_iso": "2026-06-26",
+#                 "snippet": "Te escribo para confirmar la prórroga...",
+#             },
+#             "score": 9,
+#         },
+#         {
+#             "email": {
+#                 "message_id": "def456",
+#                 "thread_id": "thread456",
+#                 "sender": "Hernán <hernan@example.com>",
+#                 "subject": "Actualización del contrato",
+#                 "date": "Sat, 27 Jun 2026 08:00:00 -0500",
+#                 "date_iso": "2026-06-27",
+#                 "snippet": "Adjunto encontrarás la actualización...",
+#             },
+#             "score": 6,
+#         },
+#     ],
+# }
+
+
+def score_gmail_message_candidates_by_range(emails_found: list,sender_hint: str,search_keywords: list,start_date: str | None,end_date: str | None,):
+
+    base_result = score_gmail_message_candidates( emails_found=emails_found, sender_hint=sender_hint, search_keywords=search_keywords, date_hint=None,)
+
+    if not start_date and not end_date:
+        return base_result
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+
+    matches = []
+
+    for match in base_result["matches"]:
+        email = match["email"]
+        email_date_iso = email.get("date_iso")
+
+        if not email_date_iso:
+            continue
+
+        email_date = date.fromisoformat(email_date_iso)
+
+        if start <= email_date < end:
+            matches.append({
+                "email": email,
+                "score": match["score"] + 1,
+            })
+
+    matches.sort(
+        key=lambda match: match["score"],
+        reverse=True,
+    )
+
+    return {
+        "emails_found": len(matches),
+        "matches": matches,
+    }
+
+#26 y 29
+        
+
 
 def score_gmail_message_candidates_MORE(emails_found: list, sender_hint: str, search_keywords: list, date_hint, ):
     return score_gmail_message_candidates(
@@ -608,4 +668,130 @@ def score_gmail_message_candidates_MORE(emails_found: list, sender_hint: str, se
         sender_hint=sender_hint,
         search_keywords=search_keywords,
         date_hint=date_hint,
+    )
+
+
+
+def filter_scored_matches_by_range(
+    base_result: dict,
+    start_date: str | None,
+    end_date: str | None,
+):
+    if start_date is None and end_date is None:
+        return base_result
+
+    if start_date is None or end_date is None:
+        raise ValueError(
+            "start_date and end_date must be provided together"
+        )
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+
+    matches = []
+
+    for match in base_result["matches"]:
+        email = match["email"]
+        email_date_iso = email.get("date_iso")
+
+        if not email_date_iso:
+            continue
+
+        email_date = date.fromisoformat(email_date_iso)
+
+        if start <= email_date < end:
+            matches.append({
+                "email": email,
+                "score": match["score"] + 1,
+            })
+
+    matches.sort(
+        key=lambda match: match["score"],
+        reverse=True,
+    )
+
+    return {
+        "emails_found": len(matches),
+        "matches": matches,
+    }
+
+def score_sent_gmail_message_candidates(
+    emails_found: list,
+    recipient_hint: str | None,
+    search_keywords: list,
+):
+    recipient_hint = normalize_text(recipient_hint or "")
+
+    normalized_keywords = [
+        normalize_text(keyword)
+        for keyword in search_keywords
+    ]
+
+    matches = []
+
+    for email in emails_found:
+        score = 0
+
+        recipient = normalize_text(
+            email.get("recipient", "")
+        )
+        subject = normalize_text(
+            email.get("subject", "")
+        )
+        snippet = normalize_text(
+            email.get("snippet", "")
+        )
+
+        recipient_matches = (
+            not recipient_hint
+            or recipient_hint in recipient
+        )
+        keyword_matches = not normalized_keywords
+
+        if recipient_hint and recipient_matches:
+            score += 2
+
+        for keyword in normalized_keywords:
+            if keyword in subject:
+                score += 3
+                keyword_matches = True
+
+            if keyword in snippet:
+                score += 1
+                keyword_matches = True
+
+        if recipient_matches and keyword_matches:
+            matches.append({
+                "email": email,
+                "score": score,
+            })
+
+    matches.sort(
+        key=lambda match: match["score"],
+        reverse=True,
+    )
+
+    return {
+        "emails_found": len(matches),
+        "matches": matches,
+    }
+
+
+def score_sent_gmail_message_candidates_by_range(
+    emails_found: list,
+    recipient_hint: str | None,
+    search_keywords: list,
+    start_date: str | None,
+    end_date: str | None,
+):
+    base_result = score_sent_gmail_message_candidates(
+        emails_found=emails_found,
+        recipient_hint=recipient_hint,
+        search_keywords=search_keywords,
+    )
+
+    return filter_scored_matches_by_range(
+        base_result=base_result,
+        start_date=start_date,
+        end_date=end_date,
     )

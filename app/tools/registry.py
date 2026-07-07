@@ -1,7 +1,7 @@
 
 
 
-from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_create_email_draft_tool, gmail_create_multiple_email_drafts_tool, gmail_get_drafted_emails_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_search_email_message_tool, gmail_send_drafted_email_tool, get_latest_emails_tool, get_unread_emails_tool, gmail_update_email_draft_tool
+from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_create_email_draft_tool, gmail_create_multiple_email_drafts_tool, gmail_get_drafted_emails_tool, gmail_get_sent_emails_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_search_email_message_tool, gmail_search_sent_emails_tool, gmail_send_drafted_email_tool, get_latest_emails_tool, get_unread_emails_tool, gmail_update_email_draft_tool
 from app.tools.internal.current_time import get_current_time
 
 
@@ -24,7 +24,9 @@ TOOLS = {
     "gmail_read_latest_email": gmail_read_latest_email_tool,
     "gmail_read_specific_email":gmail_read_specific_email_tool,
     "gmail_update_email_draft": gmail_update_email_draft_tool,
-    "gmail_create_reply_draft": gmail_create_reply_draft_tool
+    "gmail_create_reply_draft": gmail_create_reply_draft_tool,
+    "gmail_get_sent_emails": gmail_get_sent_emails_tool,
+    "gmail_search_sent_emails": gmail_search_sent_emails_tool
 
 }
 

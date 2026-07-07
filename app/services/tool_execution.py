@@ -29,6 +29,105 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
 
 def build_tool_context(tool_name: str, tool_result: dict) -> str:
 
+    if tool_name == "gmail_search_sent_emails":
+        emails = tool_result.get("emails", [])
+        returned_count = tool_result.get("returned_count", len(emails))
+        has_more = tool_result.get("has_more", False)
+
+        if has_more and returned_count < 15:
+            expansion_instruction = (
+                f"You MUST tell the user that only {returned_count} emails are "
+                "currently being shown and that more matching sent emails are "
+                "available. Ask whether they want to expand the search up to "
+                "15 emails."
+                )
+        elif has_more and returned_count >= 15:
+            expansion_instruction = (
+                "Tell the user that 15 matching emails are currently shown, which "
+                "is the maximum display limit. More matching emails are available, "
+                "so do not claim these are all the results. Invite the user to refine "
+                "the search using a recipient, subject, keyword, or narrower date range."
+            )
+        else:
+            expansion_instruction = (
+                "Do not offer to expand the search because no additional page "
+                "of results is available. Tell the user these are all the "
+                "matching sent emails that were found."
+            )
+
+        return f"""
+            A Gmail sent-email search tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Mandatory pagination instruction:
+            {expansion_instruction}
+
+            Rules for answering:
+            - Respond in the same language as the user.
+            - Use returned_count to describe how many emails are currently shown.
+            - If no emails were found, clearly state that no sent emails matched the search.
+            - If one email was found, present its recipient, subject, date, and a brief description based only on the available metadata.
+            - If multiple emails were found, list every returned email in a numbered list.
+            - For each email, include the recipient, subject, date, and a short description based only on the available metadata.
+            - Make it clear that these are emails sent by the user, not received emails.
+            - After listing the emails, invite the user to select one and specify what they want to do with it.
+            - If has_more is true, combine the final prompt naturally: offer to show more emails or act on one already listed.
+            - The maximum number of emails that can be displayed in one response is 15.
+            - Mention the 15-email display limit only when returned_count is 15 and has_more is true.
+            - If the requested email is not shown, tell the user they can provide a recipient, subject, keyword, or date to refine the search.
+            - Do not claim to have read the complete email body.
+            - Do not invent missing information.
+            - Do not mention internal tool names.
+            - Do not expose message_id, thread_id, next_page_token, or other technical identifiers unless explicitly requested.
+            - Keep the response concise and easy to scan.
+        """
+    if tool_name == "get_unread_emails":
+        emails = tool_result.get("emails", [])
+        returned_count = tool_result.get("returned_count", len(emails))
+        has_more = tool_result.get("has_more", False)
+
+        if has_more:
+            expansion_instruction = (
+                f"You MUST tell the user that only {returned_count} emails are "
+                f"currently being shown, and ask whether they want to expand the search up to 15 emails."
+            )
+        else:
+            expansion_instruction = (
+                "Do not offer to expand the search because no additional "
+                "page of results is available. Tell the user these are all "
+                "the matching emails that were found."
+            )
+        return f"""
+            A Gmail unread-email listing tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Mandatory pagination instruction:
+            {expansion_instruction}
+
+            Rules for answering:
+            - Never present estimated_total as an exact count.
+            - If estimated_total is available, describe it only as an approximate estimate.
+            - If has_more is true, tell the user that more matching emails are available and ask whether they want to expand the search.
+            - If has_more is false, do not suggest expanding the search.
+            - If no emails were found, clearly state that no unread emails matched the request.
+            - If one email was found, present its sender, subject, date, and a brief summary based only on the available metadata.
+            - If multiple emails were found, list every returned email in a numbered list.
+            - For each email, include the sender, subject, date, and a short description based only on the available metadata.
+            - After listing emails, invite the user to select one and specify what they want to do with it.
+            - If has_more is true, combine the final prompt naturally: offer to show more emails or act on one already listed.
+            - The maximum number of emails that can be displayed in one response is 15.
+            - Mention the 15-email display limit only when returned_count is 15 and has_more is true.
+            - If the requested email is not shown, tell the user they can provide a sender, subject, keyword, or date so Jarvis can search for it specifically.
+            - Do not mention internal tool names to the user.
+            - Do not claim to have read the complete email body.
+            - Do not invent missing information.
+            - Do not expose message_id, thread_id, next_page_token, or other technical identifiers unless the user explicitly requests technical details.
+            - Keep the response concise and easy to scan.
+        """ 
     if tool_name == "gmail_search_drafted_emails":
         return f"""
             A Gmail draft search tool was executed.
@@ -45,7 +144,6 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Do not say the draft was sent.
             - Do not expose draft_id unless the user explicitly asks for technical details.
         """
-    
     if tool_name == "gmail_get_drafted_emails":
         return f"""
             A Gmail draft list tool was executed.
@@ -65,7 +163,6 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Do not say the drafts were sent.
             - Do not expose draft_id unless the user explicitly asks for technical details.
     """
-
     if tool_name == "gmail_read_specific_email":
         return f"""
             A Gmail specific-email reading tool was executed.
