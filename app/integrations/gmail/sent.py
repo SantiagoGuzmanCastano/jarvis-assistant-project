@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from app.integrations.gmail.messages import has_real_next_page
+
 GOOGLE_EMAILID_URL = (
     "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 )
@@ -79,7 +81,16 @@ def fetch_sent_gmail_messages(access_token: str, max_results: int):
         fetched_email = fetch_metadata_FSD_sent_gmail_message(access_token=access_token, message_id=message["id"])
         sent_message_list.append(format_sent_gmail_message_metadata(fetched_email))
 
-    return sent_message_list
+    has_more = has_real_next_page(
+        access_token=access_token,
+        next_page_token=data.get("nextPageToken"),
+        label_id="SENT",
+    )
+    return ({
+        "emails": sent_message_list,
+        "has_more": has_more,
+        "returned_count": len(sent_message_list)
+    })
 
 
 

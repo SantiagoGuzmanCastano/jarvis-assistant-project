@@ -31,18 +31,17 @@ def build_gmail_search_query(sender_hint: str, search_keywords: list[str], date_
     return " ".join(query_parts)
 
 
-def fetch_unread_gmail_messages_ids(access_token: str, max_results: int, date_query: str):
+def fetch_unread_gmail_messages_ids(access_token: str, max_results: int, query: str):
 
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
-
-    query = f"in:inbox category:primary is:unread {date_query}".strip()
-    print("\nDate query")
+    print("\nQuery")
     print(query)
 
     params={
         "q": query,
+        
         "maxResults": max_results,
     }
 
@@ -73,10 +72,8 @@ def fetch_latest_gmail_messages_ids(access_token: str, max_results: int):
         "Authorization": f"Bearer {access_token}"
     }
 
-    query = "category:primary"
-
     params={
-        "q": query,
+        "q": LATEST_EMAILS_QUERY,
         "maxResults": max_results,
     }
 
@@ -94,7 +91,6 @@ def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query:
         "Authorization": f"Bearer {access_token}"
     }
 
-    query = f"in:inbox category:primary {query}".strip()
 
     params = {
         "q": query,
@@ -102,13 +98,16 @@ def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query:
         "maxResults": max_results,
     }
 
+    print("\nquery used:")
+    print(query)
+
     #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
     #is:unread significa: solo correos no leídos.
 
     response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-    print("QUERY:", repr(query))
-    print("URL:", response.url)
-    print("RESPONSE:", response.json())
+    # print("\nQUERY:", repr(query))
+    # print("URL:", response.url)
+    # print("RESPONSE:", response.json())
 
     response.raise_for_status()
     return response.json()
@@ -136,6 +135,8 @@ GOOGLE_EMAILID_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 
 
 GOOGLE_MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
+
+LATEST_EMAILS_QUERY = "category:primary"
 
 
 def fetch_metadata_FSD_gmail_message(message_id: str, access_token: str):
@@ -169,20 +170,20 @@ def fetch_metadata_FSD_gmail_message(message_id: str, access_token: str):
     # }
 
     
-def fetch_unread_gmail_messages(access_token:str, max_results: int, date_query: str):
-    data = fetch_unread_gmail_messages_ids(access_token=access_token, max_results=max_results, date_query = date_query)
+def fetch_unread_gmail_messages(access_token:str, max_results: int, query: str):
+    data = fetch_unread_gmail_messages_ids(access_token=access_token, max_results=max_results, query = query)
 
     message_list = []
     for message in data.get("messages",[]):
         fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
         message_list.append(fetched_email)
 
-    return {
+    has_more = has_real_next_page(access_token=access_token, query=query, next_page_token=data.get("nextPageToken"))
+    return ({
         "emails": message_list,
-        "estimated_total": data.get("resultSizeEstimate"),
-        "has_more": bool(data.get("nextPageToken")),
-        "next_page_token": data.get("nextPageToken"),
-    }
+        "has_more": has_more,
+        "returned_count": len(message_list)
+    })
 
     # [
     #   {
@@ -212,7 +213,17 @@ def fetch_latest_gmail_messages(access_token:str, max_results: int):
         fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
         message_list.append(fetched_email)
 
-    return message_list
+    has_more = has_real_next_page(
+        access_token=access_token,
+        next_page_token=data.get("nextPageToken"),
+        query=LATEST_EMAILS_QUERY,
+    )
+
+    return {
+        "emails": message_list,
+        "has_more": has_more,
+        "returned_count": len(message_list),
+    }
 
 # endregion
 
@@ -220,17 +231,16 @@ def fetch_latest_gmail_messages(access_token:str, max_results: int):
 # region search
 
 def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, query: str):
-    print("\nquery!!!:")
-    print(query)
     data = fetch_specific_gmail_messages_id(access_token=access_token, max_results=max_results, query=query)
+
+    print("")
+    print(data)
 
     message_list = []
     for message in data.get("messages",[]):
         fetched_email = fetch_metadata_FSD_gmail_message(message_id=message["id"], access_token=access_token)
 
         message_headers = fetched_email["payload"]["headers"]
-
-        
         sender = ""
         subject = ""
         date = ""
@@ -267,8 +277,12 @@ def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, 
             "snippet": fetched_email.get("snippet", ""),
         })
 
-
-    return message_list
+    has_more = has_real_next_page(access_token=access_token, query=query, next_page_token=data.get("nextPageToken"))
+    return ({
+        "emails": message_list,
+        "has_more": has_more,
+        "returned_count": len(message_list)
+    })
 
 # [
 #   
@@ -295,7 +309,7 @@ def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, 
 # 
 def fetch_full_latest_gmail_messages(access_token: str, max_results: int):
 
-    message_list = fetch_latest_gmail_messages(
+    message_page = fetch_latest_gmail_messages(
         access_token=access_token,
         max_results=max_results,
     )
@@ -312,7 +326,7 @@ def fetch_full_latest_gmail_messages(access_token: str, max_results: int):
 
     latest_emails = []
 
-    for message in message_list:
+    for message in message_page["emails"]:
         message_id = message["id"]
 
         response = requests.get(
@@ -360,7 +374,6 @@ def fetch_full_specific_gmail_messages(access_token: str, max_results: int, quer
         full_email = fetch_full_specific_gmail_messages_metadata(access_token=access_token, message_id=message_id)
         message_list.append(full_email)
 
-    print("counter")
     
     return message_list
 
@@ -795,3 +808,41 @@ def score_sent_gmail_message_candidates_by_range(
         start_date=start_date,
         end_date=end_date,
     )
+
+
+# -------------- EXTRAS ---------------
+
+def has_real_next_page(
+    access_token: str,
+    next_page_token: str | None,
+    query: str | None = None,
+    label_id: str | None = None,
+) -> bool:
+    if not next_page_token:
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params: dict[str, str | int] = {
+        "maxResults": 1,
+        "pageToken": next_page_token,
+    }
+
+    if query:
+        params["q"] = query
+
+    if label_id:
+        params["labelIds"] = label_id
+
+    response = requests.get(
+        GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
+    response.raise_for_status()
+
+    next_page = response.json()
+
+    return bool(next_page.get("messages"))
