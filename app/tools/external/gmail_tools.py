@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from email.utils import parseaddr, parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-from app.integrations.gmail.drafts import create_draft_reply, create_gmail_draft, fetch_gmail_drafts, normalize_text, search_gmail_drafts, search_gmail_drafts_no_snippet, send_gmail_draft, update_gmail_draft
+from app.integrations.gmail.drafts import create_draft_reply, create_gmail_draft, fetch_gmail_draft_full, fetch_gmail_drafts, fetch_specific_gmail_drafts, fetch_specific_gmail_drafts_full, format_gmail_draft_full, send_gmail_draft, update_gmail_draft
 from app.integrations.gmail.messages import build_gmail_search_query, fetch_full_specific_gmail_messages, fetch_latest_gmail_messages, fetch_specific_gmail_message_format_FSD, fetch_unread_gmail_messages, fetch_full_latest_gmail_messages, has_real_next_page, score_gmail_message_candidates, score_gmail_message_candidates_MORE, score_gmail_message_candidates_by_range, score_sent_gmail_message_candidates_by_range, search_latest_gmail_messages_for_metadata, fetch_specific_gmail_message_format_MORE
 from app.integrations.gmail.search import build_gmail_query
 from app.integrations.gmail.sent import fetch_sent_gmail_messages, fetch_specific_sent_gmail_messages
@@ -158,7 +158,7 @@ def get_latest_emails_tool(arguments: dict, user_id: int, session: Session):
 # --------------SEND---------------
 # region send
 # def gmail_send_email_message_tool(arguments: dict, user_id: int, session: Session):
-    
+
 #     recipient_email = arguments.get("recipient_email")
 #     subject = arguments.get("subject")
 #     body = arguments.get("body")
@@ -171,7 +171,7 @@ def get_latest_emails_tool(arguments: dict, user_id: int, session: Session):
 #         subject=subject,
 #         body=body,
 #     )
-    
+
 #     return email_sent
 # endregion
 
@@ -186,7 +186,7 @@ def gmail_search_email_message_tool(arguments: dict, user_id: int, session: Sess
     sender_hint = arguments.get("sender_hint", [])
 
     query = build_gmail_query(search_scope="received", start_date=start_date,end_date=end_date,search_keywords=search_keywords,sender_hint=sender_hint, recipient_hint=None)
-    
+
     print("\nQuery:")
     print(query)
 
@@ -279,28 +279,28 @@ def gmail_create_multiple_email_drafts_tool(arguments: dict, user_id: int, sessi
                 "created": False,
                 "reason": "missing_required_fields",
                 "missing_fields": missing_fields,
-                "failed_email_fields": 
+                "failed_email_fields":
                     {
                         "recipient_email": recipient_email,
                         "subject": subject,
                         "body": body
 
-                    } 
+                    }
                 })
             continue
-        
+
         create_gmail_draft(access_token=access_token, body=body, subject=subject, recipient_email=recipient_email)
         created_count +=1
 
         results.append({
                 "created": True,
-                "created_email_fields": 
+                "created_email_fields":
                     {
                         "recipient_email": recipient_email,
                         "subject": subject,
                         "body":body
 
-                    } 
+                    }
                 })
 
     return ({
@@ -322,7 +322,7 @@ def gmail_create_multiple_email_drafts_tool(arguments: dict, user_id: int, sessi
     #       "subject": "Email subject",
     #       "body": "Email body"
     #       },
-    #       
+    #
     #      ]
     #   }
     # }
@@ -337,33 +337,83 @@ def gmail_get_drafted_emails_tool(arguments: dict,user_id: int, session: Session
     return draft_email
 
 
-def gmail_search_drafted_emails_tool(arguments: dict, user_id: int, session: Session):
-    recipient_hint = arguments.get("recipient_hint","")
-    subject_keywords = arguments.get("subject_keywords",[])
-    snippet_keywords = arguments.get("snippet_keywords",[])
-    max_results = arguments.get("max_results",10)
+def gmail_search_drafted_emails_tool(arguments: dict, user_id: int, session: Session, conversation_id: int | None = None):
+    max_results = min(
+        max(int(arguments.get("max_results", 5)), 1),
+        15,
+    )
+    start_date = arguments.get("start_date")
+    end_date = arguments.get("end_date")
+    recipient_hint = arguments.get("recipient_hint", [])
+    search_keywords = arguments.get("search_keywords", [])
+
+    query = build_gmail_query(
+        search_scope="draft",
+        start_date=start_date,
+        end_date=end_date,
+        search_keywords=search_keywords,
+        recipient_hint=recipient_hint,
+    )
+
+    print("\nQuery:")
+    print(query)
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
 
-    response = search_gmail_drafts(access_token=access_token, max_results=max_results, recipient_hint=recipient_hint, subject_keywords=subject_keywords, snippet_keywords=snippet_keywords)
+    draft_results = fetch_specific_gmail_drafts(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
 
+    if conversation_id is not None and draft_results.get("drafts"):
+        delete_tool_state(user_id=user_id,conversation_id=conversation_id, session=session)
 
-    print(response)
-    return response
+        create_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            payload=draft_results["drafts"],
+            session=session,
+        )
+
+    return draft_results
 
 
 def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session, conversation_id: int):
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
-
-
     selected_result_index = arguments.get("selected_result_index")
+
+    requested_draft_count = arguments.get("requested_draft_count", 1)
+
+    if requested_draft_count is None:
+        return ({
+            "sent": False,
+            "reason": "multiple_draft_send_not_supported",
+            "requested_draft_count": None
+        })
+
+    requested_draft_count = int(requested_draft_count)
+
+    if requested_draft_count > 1:
+        return ({
+            "sent": False,
+            "reason": "multiple_draft_send_not_supported",
+            "requested_draft_count": requested_draft_count
+        })
+
+    if not requested_draft_count:
+        return ({
+            "sent": False,
+            "reason": "incorrect_draft_send",
+            "requested_draft_count": 0
+        })
 
     if selected_result_index is not None:
         selected_result_index = int(selected_result_index)
 
+    #si hay una lista en tool_state y se elige entre una
     if selected_result_index is not None:
-        
         print("\nSELECTED RESULT INDEX ->")
         print(selected_result_index)
         tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
@@ -382,11 +432,11 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
                 "message": "Selected draft index is out of range",
                 "available_drafts": tool_payload # type: ignore  # noqa: F821
             })
-        
+
         selected_draft = tool_payload[selected_result_index-1] # pyright: ignore[reportUnboundVariable]
         print("\nDRAFT SELECTED ->")
-        print(selected_draft) 
-        
+        print(selected_draft)
+
 
         send_gmail_draft(draft_id=tool_payload[selected_result_index-1]["draft_id"], access_token=access_token) # type: ignore
         delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
@@ -395,10 +445,11 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
             "draft_id":selected_draft["draft_id"],  # type: ignore
             "selected_draft": selected_draft,  # type: ignore
         })
-    
-    
+
+
     selection_type = arguments.get("selection_type")
 
+    #si es un correo reciente, ultimo, penultimo
     if selection_type == "recent_draft":
 
         recent_draft_index = arguments.get("recent_draft_index")
@@ -409,10 +460,11 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
                 "reason": "missing_recent_draft_index",
                 "message": "Missing recent draft index."
             }
-        
-        recent_draft_index = int(recent_draft_index)
 
-        max_results = max(recent_draft_index + 1, 1)
+        recent_draft_position = int(recent_draft_index)
+        recent_draft_index = recent_draft_position - 1
+
+        max_results = max(recent_draft_position, 1)
 
 
         last_drafted_emails = gmail_get_drafted_emails_tool(user_id=user_id, session=session, arguments={
@@ -420,9 +472,9 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         })
 
         # la posición que pidio el usuario existe en esta lista?
-        # recent_draft_index = 0  valido
-        # recent_draft_index = 1  valido
-        # recent_draft_index = 2  invalido
+        # recent_draft_index interno:
+        # 0 = ultimo borrador
+        # 1 = penultimo borrador
         if recent_draft_index < 0 or recent_draft_index >= len(last_drafted_emails):
             return {
                 "sent": False,
@@ -443,13 +495,40 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
             })
 
 
-    
-    recipient_hint = arguments.get("recipient_hint","")
-    subject_keywords = arguments.get("subject_keywords",[])
-    snippet_keywords = arguments.get("snippet_keywords",[])
-    max_results = arguments.get("max_results",10)
-    
-    emails_found = search_gmail_drafts(access_token=access_token, max_results=max_results, recipient_hint=recipient_hint, subject_keywords=subject_keywords, snippet_keywords=snippet_keywords)
+    max_results = min(
+        max(int(arguments.get("max_results", 5)), 1),
+        15,
+    )
+    start_date = arguments.get("start_date")
+    end_date = arguments.get("end_date")
+    recipient_hint = arguments.get("recipient_hint", [])
+    search_keywords = arguments.get("search_keywords", [])
+
+    if not recipient_hint and not search_keywords and not start_date and not end_date:
+        return {
+            "sent": False,
+            "reason": "missing_draft_search_fields",
+            "message": "Missing information required to identify the draft."
+        }
+
+    query = build_gmail_query(
+        search_scope="draft",
+        start_date=start_date,
+        end_date=end_date,
+        search_keywords=search_keywords,
+        recipient_hint=recipient_hint,
+    )
+
+    print("\nQuery:")
+    print(query)
+
+    drafts_found = fetch_specific_gmail_drafts(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+
+    emails_found = drafts_found["drafts"]
 
 
     print('\nDRAFT MATCHES FOUND:')
@@ -457,16 +536,16 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
 
     if emails_found is None:
         raise ValueError("Draft search failed")
-    
+
     if len(emails_found) == 0:
         return ({
             "sent": False,
             "reason": "no_matching_draft",
             "message": "No matching draft was found."
         })
-    
-    if len(emails_found) > 1:
 
+    if len(emails_found) > 1:
+        delete_tool_state(user_id=user_id,conversation_id=conversation_id, session=session)
         for item in emails_found:
             for key, value in item.items():
                 print(key, value, type(value))
@@ -477,16 +556,20 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
             "sent": False,
             "reason": "multiple_matching_drafts",
             "message": "Multiple matching drafts found, please specify which draft you want to send",
-            "matching_drafts_found": emails_found
+            "matching_drafts_found": emails_found,
+            "returned_count": drafts_found.get("returned_count", len(emails_found)),
+            "has_more": drafts_found.get("has_more", False),
         })
-        
-    selected_draft = emails_found[0]
-    send_gmail_draft(draft_id=selected_draft["draft_id"], access_token=access_token)
-    return ({
-        "sent": True,
-        "draft_id":selected_draft["draft_id"],
-        "selected_draft": selected_draft,
-        })
+
+    if len(emails_found) == 1:
+    #si la busqueda fue especifica y se encontro uno correo.
+        selected_draft = emails_found[0]
+        send_gmail_draft(draft_id=selected_draft["draft_id"], access_token=access_token)
+        return ({
+            "sent": True,
+            "draft_id":selected_draft["draft_id"],
+            "selected_draft": selected_draft,
+            })
 
 
 def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dict, conversation_id: int):
@@ -494,6 +577,96 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
     access_token = get_valid_google_access_token(user_id=user_id,session=session,)
     recent_draft_index = arguments.get("recent_draft_index")
     selection_type = arguments.get("selection_type")
+
+    if selection_type not in {"active_draft", "recent_draft", "specific_draft"}:
+        return {
+            "updated": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid draft selection type is required.",
+        }
+
+    if selection_type == "active_draft":
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            session=session,
+            conversation_id=conversation_id,
+        )
+
+        if tool_payload is None or "active_draft" not in tool_payload:
+            return {
+                "updated": False,
+                "reason": "missing_active_draft",
+                "message": "No recently updated draft is available.",
+            }
+
+        selected_draft = tool_payload["active_draft"]
+
+        print("\nDraft Seleccionado: ")
+        print(selected_draft)
+        
+        requested_new_recipient_email = arguments.get("new_recipient_email", "")
+        requested_new_subject = arguments.get("new_subject", "")
+        requested_new_body = arguments.get("new_body", "")
+                
+        if (not requested_new_recipient_email and not requested_new_subject and not requested_new_body
+            ):
+            return {
+                "updated": False,
+                "reason": "missing_update_fields",
+                "message": (
+                    "No update fields were provided. Please specify at least one field "
+                    "to update: recipient, subject, or body."
+                ),
+                "missing_fields": [
+                    "new_recipient_email",
+                    "new_subject",
+                    "new_body",
+                ],
+            }
+
+        new_recipient_email = requested_new_recipient_email or selected_draft["to"]
+        new_subject = requested_new_subject or selected_draft["subject"]
+        new_body = requested_new_body or selected_draft["body"]
+
+        update_gmail_draft(
+            access_token=access_token,
+            body=new_body,
+            subject=new_subject,
+            recipient_email=new_recipient_email,
+            draft_id=selected_draft["draft_id"],
+            )
+
+        updated_draft = {
+            **selected_draft,
+            "to": new_recipient_email,
+            "subject": new_subject,
+            "body": new_body,
+        }
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        create_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            payload={"active_draft": updated_draft},
+        )
+
+        return {
+            "updated": True,
+            "new_recipient_email": new_recipient_email,
+            "new_subject": new_subject,
+            "new_body": new_body,
+            "selected_draft": updated_draft,
+            "updated_fields": {
+                "recipient_email": bool(requested_new_recipient_email),
+                "subject": bool(requested_new_subject),
+                "body": bool(requested_new_body),
+            },
+        }
 
     if selection_type == "recent_draft":
 
@@ -507,208 +680,403 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             }
 
         if recent_draft_index is not None:
-
-            missing_search_fields = []
-
-            recipient_email = arguments.get("recipient_email")
-            if recipient_email is None:
-                missing_search_fields.append("recipient_email")
-
-            subject = arguments.get("subject")
-            if subject is None:
-                missing_search_fields.append("subject")
-
-            body = arguments.get("body")
-            if body is None:
-                missing_search_fields.append("body")
-
-            if missing_search_fields:
-                return ({
+            try:
+                recent_draft_position = int(recent_draft_index)
+            except (TypeError, ValueError):
+                return {
                     "updated": False,
-                    "reason": "missing_required_fields",
-                    "missing_fields": missing_search_fields,
-                })
+                    "reason": "invalid_recent_draft_index",
+                    "message": "Recent draft index must be a positive integer.",
+                }
 
-            recent_draft_index = int(recent_draft_index)
+            if recent_draft_position < 1:
+                return {
+                    "updated": False,
+                    "reason": "invalid_recent_draft_index",
+                    "message": "Recent draft index must be a positive integer.",
+                }
 
-            max_results = max(recent_draft_index + 1, 1)
+            recent_draft_index = recent_draft_position - 1
+
+            max_results = max(recent_draft_position, 1)
 
             last_drafted_emails = gmail_get_drafted_emails_tool(user_id=user_id, session=session, arguments={
                 "max_results": max_results
             })
             # la posición que pidio el usuario existe en esta lista?
-            # recent_draft_index = 0  valido
-            # recent_draft_index = 1  valido
-            # recent_draft_index = 2  invalido
+            # recent_draft_index interno:
+            # 0 = ultimo borrador
+            # 1 = penultimo borrador
             if recent_draft_index < 0 or recent_draft_index >= len(last_drafted_emails):
                 return {
-                    "sent": False,
+                    "updated": False,
                     "reason": "invalid_recent_draft_index",
                     "message": "Requested recent draft index is out of range.",
                     "available_drafts": last_drafted_emails,
                 }
 
-            print("funciona__+_+")
-            selected_draft = last_drafted_emails[recent_draft_index]
-            update_gmail_draft(access_token=access_token, body=body, recipient_email=recipient_email, subject=subject, draft_id=selected_draft["id"])
-            return ({
+            selected_draft_metadata = last_drafted_emails[recent_draft_index]
+            selected_draft_full = fetch_gmail_draft_full(
+                access_token=access_token,
+                draft_id=selected_draft_metadata["id"],
+            )
+            selected_draft = format_gmail_draft_full(
+                draft=selected_draft_full,
+                position=recent_draft_position,
+            )
+
+            requested_new_recipient_email = arguments.get("new_recipient_email", "")
+            requested_new_subject = arguments.get("new_subject", "")
+            requested_new_body = arguments.get("new_body", "")
+
+            if (
+                not requested_new_recipient_email
+                and not requested_new_subject
+                and not requested_new_body
+            ):
+                return {
+                    "updated": False,
+                    "reason": "missing_update_fields",
+                    "message": (
+                        "No update fields were provided. Please specify at least one field "
+                        "to update: recipient, subject, or body."
+                    ),
+                    "missing_fields": [
+                        "new_recipient_email",
+                        "new_subject",
+                        "new_body",
+                    ],
+                }
+
+            new_recipient_email = requested_new_recipient_email or selected_draft["to"]
+            new_subject = requested_new_subject or selected_draft["subject"]
+            new_body = requested_new_body or selected_draft["body"]
+
+            update_gmail_draft(
+                access_token=access_token,
+                body=new_body,
+                recipient_email=new_recipient_email,
+                subject=new_subject,
+                draft_id=selected_draft["draft_id"],
+            )
+
+            updated_draft = {
+                **selected_draft,
+                "to": new_recipient_email,
+                "subject": new_subject,
+                "body": new_body,
+            }
+
+            delete_tool_state(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                session=session,
+            )
+            create_tool_state(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                session=session,
+                payload={"active_draft": updated_draft},
+            )
+
+            return {
                 "updated": True,
-                "new_recipient_email": recipient_email,
-                "new_subject": subject,
-                "new_body": body
-            })
-            
+                "new_recipient_email": new_recipient_email,
+                "new_subject": new_subject,
+                "new_body": new_body,
+                "selected_draft": updated_draft,
+                "updated_fields": {
+                    "recipient_email": bool(requested_new_recipient_email),
+                    "subject": bool(requested_new_subject),
+                    "body": bool(requested_new_body),
+                },
+            }
+
     if selection_type == "specific_draft":
 
         selected_result_index = arguments.get("selected_result_index")
 
-        if selected_result_index:
+        if selected_result_index is not None:
+            try:
+                selected_result_index = int(selected_result_index)
+            except (TypeError, ValueError):
+                return {
+                    "updated": False,
+                    "reason": "invalid_selected_result_index",
+                    "message": "Selected draft index must be a positive integer.",
+                }
+
             tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
 
             if tool_payload is None:
                 return {
-                    "sent": False,
+                    "updated": False,
                     "reason": "missing_tool_state",
                     "message": "No previous draft selection was found."
                 }
 
-            if selected_result_index < 1 or selected_result_index> len(tool_payload): # type: ignore # noqa: F821
-                return ({
-                    "sent": False,
+            if "drafts" not in tool_payload:
+                return {
+                    "updated": False,
+                    "reason": "invalid_tool_state",
+                    "message": "Previous draft selection is invalid.",
+                }
+
+            drafts_to_choose = tool_payload["drafts"]
+
+            if selected_result_index < 1 or selected_result_index > len(drafts_to_choose):
+                return {
+                    "updated": False,
                     "reason": "invalid_selected_result_index",
-                    "message": "Selected draft index is out of range",
-                    "available_drafts": tool_payload # type: ignore  # noqa: F821
-                })
-            
-            selected_draft = tool_payload["emails_found"][selected_result_index-1]
-            update_gmail_draft(
-                access_token=access_token,
-                body=tool_payload["new_body"],
-                subject=tool_payload["new_subject"],
-                recipient_email=tool_payload["new_recipient_email"],
-                draft_id=selected_draft["draft_id"],
-                )
-            delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
-            return ({
-                "updated": True,
-                "new_subject": tool_payload["new_subject"],
-                "new_body": tool_payload["new_body"],
-                "new_recipient_email": tool_payload["new_recipient_email"]
-            })
+                    "message": "Selected draft index is out of range.",
+                    "available_drafts": drafts_to_choose,
+                }
 
+            selected_draft = drafts_to_choose[selected_result_index - 1]
 
-        max_results = arguments.get("max_results", 10)
+            requested_new_recipient_email = tool_payload.get("new_recipient_email", "")
+            requested_new_subject = tool_payload.get("new_subject", "")
+            requested_new_body = tool_payload.get("new_body", "")
 
-        missing_search_fields = []
+            if (
+                not requested_new_recipient_email
+                and not requested_new_subject
+                and not requested_new_body
+            ):
+                return {
+                    "updated": False,
+                    "reason": "missing_update_fields",
+                    "message": (
+                        "No update fields were provided. Please specify at least one field "
+                        "to update: recipient, subject, or body."
+                    ),
+                    "missing_fields": [
+                        "new_recipient_email",
+                        "new_subject",
+                        "new_body",
+                    ],
+                }
 
-        to_change_recipient_email = arguments.get("to_change_recipient_email", "")
-        if to_change_recipient_email is None:
-            missing_search_fields.append("to_change_recipient_email")
-        
-        to_change_subject_keywords = arguments.get("to_change_subject_keywords", [])
-        if to_change_subject_keywords is None:
-            missing_search_fields.append("to_change_subject_keywords")
+            new_recipient_email = requested_new_recipient_email or selected_draft["to"]
+            new_subject = requested_new_subject or selected_draft["subject"]
+            new_body = requested_new_body or selected_draft["body"]
 
-        missing_replacement_fields = []
-
-        new_recipient_email = arguments.get("new_recipient_email", "")
-        if not new_recipient_email:
-            missing_replacement_fields.append("new_recipient_email")
-
-        new_subject = arguments.get("new_subject", "")
-        if not new_subject:
-            missing_replacement_fields.append("new_subject")
-
-        new_body = arguments.get("new_body", "")
-        if not new_body:
-            missing_replacement_fields.append("new_body")
-
-        print("\nMISSING SERCH FIELDS:")
-        print(missing_search_fields)
-
-        print("\nMISSING REPLACEMENT FIELDS:")
-        print(missing_replacement_fields)
-        if missing_search_fields and missing_replacement_fields:
-            return {
-                "updated": False,
-                "reason": "missing_search_and_replacement_fields",
-                "message": "Missing fields required to identify and update the draft.",
-                "missing_search_fields": missing_search_fields,
-                "missing_replacement_fields": missing_replacement_fields,
-            }
-
-        if missing_search_fields:
-            return {
-                "updated": False,
-                "reason": "missing_draft_search_fields",
-                "message": "Missing information required to identify the draft.",
-                "missing_fields": missing_search_fields,
-            }
-
-        if missing_replacement_fields:
-            return {
-                "updated": False,
-                "reason": "missing_draft_replacement_fields",
-                "message": "Missing fields required for the new draft content.",
-                "missing_fields": missing_replacement_fields,
-            }
-                
-
-
-        emails_found = search_gmail_drafts_no_snippet(access_token=access_token, recipient_hint=to_change_recipient_email, subject_keywords=to_change_subject_keywords, max_results=max_results)
-
-        print("\n EMAILS ENCONTRADOS:")
-        for index, draft in enumerate(emails_found, start=1):
-            print(f"\n--- BORRADOR {index} ---")
-            print(f"ID:          {draft['draft_id']}")
-            print(f"Destinatario: {draft['to']}")
-            print(f"Asunto:       {draft['subject']}")
-            print(f"Puntuación:   {draft['score']}")
-
-        # return({
-        #     "updated": False,
-        #     "reason": "Si ves este mensaje es que el developer esta arreglando un bug, informar de forma literal"
-        # })
-    
-        if len(emails_found) == 1:
             update_gmail_draft(
                 access_token=access_token,
                 body=new_body,
                 subject=new_subject,
                 recipient_email=new_recipient_email,
-                draft_id=emails_found[0]["draft_id"],
-                )
-            
-            return ({
+                draft_id=selected_draft["draft_id"],
+            )
+
+            updated_draft = {
+                **selected_draft,
+                "to": new_recipient_email,
+                "subject": new_subject,
+                "body": new_body,
+            }
+
+            delete_tool_state(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                session=session,
+            )
+            create_tool_state(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                session=session,
+                payload={"active_draft": updated_draft},
+            )
+
+            return {
                 "updated": True,
                 "new_subject": new_subject,
                 "new_body": new_body,
-                "new_recipient_email": new_recipient_email
-            })
-
-        if len(emails_found) > 1:
-
-            payload = {
-                "emails_found": emails_found,
                 "new_recipient_email": new_recipient_email,
-                "new_body": new_body,
-                "new_subject": new_subject
+                "selected_draft": updated_draft,
+                "updated_fields": {
+                    "recipient_email": bool(requested_new_recipient_email),
+                    "subject": bool(requested_new_subject),
+                    "body": bool(requested_new_body),
+                },
             }
 
-            create_tool_state(user_id=user_id, conversation_id=conversation_id, session=session, payload=payload)
+        if selected_result_index is None:
+            try:
+                max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
+            except (TypeError, ValueError):
+                return {
+                    "updated": False,
+                    "reason": "invalid_max_results",
+                    "message": "max_results must be an integer between 1 and 15.",
+                }
 
-            return ({"updated": False,
-                "reason": "multiple_matching_drafts",
-                "message": "Multiple matching drafts found, please specify which draft you want to send",
-                "matching_drafts_found": emails_found
-            })
+            start_date = arguments.get("start_date")
+            end_date = arguments.get("end_date")
+            recipient_hint = arguments.get("recipient_hint", [])
+            search_keywords = arguments.get("search_keywords", [])
 
-        if len(emails_found) == 0:
-            return ({
-            "updated": False,
-            "reason": "no_matching_draft",
-            "message": "No matching draft was found."
-        })
+            if bool(start_date) != bool(end_date):
+                return {
+                    "updated": False,
+                    "reason": "incomplete_date_range",
+                    "message": "start_date and end_date must be provided together.",
+                }
+
+            if start_date and end_date:
+                try:
+                    start = date.fromisoformat(start_date)
+                    end = date.fromisoformat(end_date)
+                except (TypeError, ValueError):
+                    return {
+                        "updated": False,
+                        "reason": "invalid_date_range",
+                        "message": "Dates must use YYYY-MM-DD format.",
+                    }
+
+                if end <= start:
+                    return {
+                        "updated": False,
+                        "reason": "invalid_date_range",
+                        "message": "end_date must be later than start_date.",
+                    }
+
+            missing_search_fields = []
+            if (not recipient_hint and not search_keywords and not start_date and not end_date):
+                missing_search_fields.append("recipient_hint_or_search_keywords_or_date_range")
+
+            if missing_search_fields:
+                return {
+                    "updated": False,
+                    "reason": "missing_draft_search_fields",
+                    "message": "Missing information required to identify the draft.",
+                    "missing_fields": missing_search_fields,
+                }
+
+            query = build_gmail_query(
+                search_scope="draft",
+                start_date=start_date,
+                end_date=end_date,
+                search_keywords=search_keywords,
+                recipient_hint=recipient_hint,
+            )
+
+            print("\nQuery")
+            print(query)
+            
+            drafts_found = fetch_specific_gmail_drafts_full(
+                access_token=access_token,
+                max_results=max_results,
+                query=query,
+            )
+
+            emails_found = drafts_found['drafts']
+
+            if len(emails_found) == 1:
+                selected_draft = emails_found[0]
+
+                requested_new_recipient_email = arguments.get("new_recipient_email", "")
+                requested_new_subject = arguments.get("new_subject", "")
+                requested_new_body = arguments.get("new_body", "")
+                
+                if (
+                        not requested_new_recipient_email
+                        and not requested_new_subject
+                        and not requested_new_body
+                    ):
+                    return {
+                        "updated": False,
+                        "reason": "missing_update_fields",
+                        "message": (
+                            "No update fields were provided. Please specify at least one field "
+                            "to update: recipient, subject, or body."
+                        ),
+                        "missing_fields": [
+                            "new_recipient_email",
+                            "new_subject",
+                            "new_body",
+                        ],
+                    }
+
+                new_recipient_email = requested_new_recipient_email or selected_draft["to"]
+                new_subject = requested_new_subject or selected_draft["subject"]
+                new_body = requested_new_body or selected_draft["body"]
+
+
+                
+                update_gmail_draft(
+                    access_token=access_token,
+                    body=new_body,
+                    subject=new_subject,
+                    recipient_email=new_recipient_email,
+                    draft_id=emails_found[0]["draft_id"],
+                    )
+                
+                updated_draft = {
+                    **selected_draft,
+                    "to": new_recipient_email,
+                    "subject": new_subject,
+                    "body": new_body,
+                }
+
+                delete_tool_state(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    session=session,
+                )
+                create_tool_state(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    session=session,
+                    payload={"active_draft": updated_draft},
+                )
+
+                return {
+                    "updated": True,
+                    "new_subject": new_subject,
+                    "new_body": new_body,
+                    "new_recipient_email": new_recipient_email,
+                    "selected_draft": updated_draft,
+                    "updated_fields": {
+                        "recipient_email": bool(requested_new_recipient_email),
+                        "subject": bool(requested_new_subject),
+                        "body": bool(requested_new_body),
+                    },
+                }
+
+            if len(emails_found) > 1:
+
+
+                delete_tool_state(user_id=user_id,conversation_id=conversation_id, session=session)
+                
+                requested_new_recipient_email = arguments.get("new_recipient_email", "")
+                requested_new_subject = arguments.get("new_subject", "")
+                requested_new_body = arguments.get("new_body", "")
+
+                payload = {
+                    "drafts": emails_found,
+                    "new_recipient_email": requested_new_recipient_email,
+                    "new_subject": requested_new_subject,
+                    "new_body": requested_new_body,
+                    }
+                
+                create_tool_state(user_id=user_id, conversation_id=conversation_id, session=session, payload=payload)
+
+                return ({"updated": False,
+                    "reason": "multiple_matching_drafts",
+                    "message": "Multiple matching drafts found, please specify which draft you want to update",
+                    "matching_drafts_found": emails_found,
+                    "returned_count": drafts_found.get("returned_count", len(emails_found)),
+                    "has_more": drafts_found.get("has_more", False),
+                })
+
+            if len(emails_found) == 0:
+                return ({
+                    "updated": False,
+                    "reason": "no_matching_draft",
+                    "message": "No matching draft was found."
+                })
+
 
 
 def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Session, conversation_id: int):
@@ -733,7 +1101,7 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
         emails_found = search_latest_gmail_messages_for_metadata(
                     access_token=access_token,
                     max_results=max_results)
-        
+
         if recent_email_position < 1 or recent_email_position > len(emails_found):
             return {
                 "created": False,
@@ -741,9 +1109,9 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                 "message": "The requested email position is out of range.",
                 "available_emails": len(emails_found),
             }
-        
+
         reply_context = extract_gmail_reply_context(emails=emails_found, email_index=recent_email_position - 1)
-        
+
         created_draft = create_draft_reply(
                     access_token=access_token,
                     thread_id=reply_context["threadId"],
@@ -809,7 +1177,7 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
         sender_hint = arguments.get("sender_hint", [])
 
         query = build_gmail_query(search_scope="received",start_date=start_date, end_date=end_date, search_keywords=search_keywords, sender_hint=sender_hint)
-        
+
         emails_fetched = fetch_specific_gmail_message_format_MORE(access_token=access_token, max_results=max_results, query=query)
 
         print("\nEMAILS FOUND")
@@ -822,7 +1190,7 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
             "reason": "no_matching_draft",
             "message": "No matching draft was found."
         })
-    
+
         if len(emails_fetched) == 1:
             created_draft = create_draft_reply(
                     access_token=access_token,
@@ -832,7 +1200,7 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                     recipient_email=emails_fetched[0]["recipient_email"],
                     subject=emails_fetched[0]["subject"],
                     body=reply_body,)
-            
+
             return {
             "created": True,
             "draft_id": created_draft["id"],
@@ -860,10 +1228,10 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                 "message": "Multiple matching drafts found, please specify which draft you want to send",
                 "matching_drafts_found": emails_fetched
             })
-        
+
 
 # endregion
-    
+
 # --------------READ---------------
 # region read
 
@@ -965,7 +1333,7 @@ def format_gmail_email(email_requested: dict):
 
 
 def format_gmail_email_candidates(emails: list[dict],) -> list[dict]:
-    
+
     utc_timezone = ZoneInfo("UTC")
     user_timezone = ZoneInfo("America/Bogota")
 
@@ -1095,7 +1463,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
         print(f"Subject: {headers.get('subject')}")
         print(f"Date: {headers.get('date')}")
         print(f"Snippet: {email.get('snippet')}")
-    
+
 
     if len(emails_found) > 1:
         matching_email_summaries = format_gmail_email_candidates(emails_found)
@@ -1108,7 +1476,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
             "message": "Multiple emails matched the query. Please specify which one you want to read.",
             "matching_emails": matching_email_summaries,
         }
-    
+
     if len(emails_found) == 1:
 
         return (format_gmail_email(email_requested=emails_found[0]))
@@ -1149,7 +1517,7 @@ def gmail_search_sent_emails_tool(arguments: dict, user_id: int, session: Sessio
 
     print("\nEmails found:")
     print(len(emails_found["emails"]))
-    
+
     return ({
         "emails":emails_found,
         "has_more": emails_found["has_more"]

@@ -1,0 +1,231 @@
+CASOS DE PRUEBA - gmail_update_email_draft
+
+Objetivo:
+Probar que gmail_update_email_draft funciona como PATCH logico:
+- Si el usuario cambia solo un campo, conserva los demas.
+- Si hay varios borradores, no actualiza hasta que el usuario seleccione uno.
+- Si falta informacion critica, no actualiza.
+
+
+1. UPDATE DIRECTO - UN SOLO MATCH - CAMBIAR SOLO ASUNTO OK
+
+Mensaje:
+Jarvis, modifica el borrador para linaonelsona0125@gmail.com sobre Razer y cambia solo el asunto a "Nuevo asunto Razer"
+
+Debe pasar:
+- Usa gmail_update_email_draft.
+- selection_type: specific_draft.
+- Encuentra 1 borrador.
+- Cambia solo new_subject.
+- Conserva destinatario y body originales.
+- updated_fields.subject = true.
+- updated_fields.recipient_email = false.
+- updated_fields.body = false.
+
+
+2. UPDATE DIRECTO - UN SOLO MATCH - CAMBIAR SOLO BODY OK
+
+Mensaje:
+Jarvis, modifica el borrador para linaonelsona0125@gmail.com sobre Razer y cambia el cuerpo a "Hola, este es el nuevo contenido."
+
+Debe pasar:
+- Cambia solo new_body.
+- Conserva destinatario y subject originales.
+- updated_fields.body = true.
+
+
+3. UPDATE DIRECTO - UN SOLO MATCH - CAMBIAR SOLO DESTINATARIO OK
+
+Mensaje:
+Jarvis, modifica el borrador sobre Razer y cambia el destinatario a linacastano03@gmail.com
+
+Debe pasar:
+- Cambia solo new_recipient_email.
+- Conserva subject y body originales.
+- updated_fields.recipient_email = true.
+
+
+4. UPDATE DIRECTO - CAMBIAR VARIOS CAMPOS OK
+
+Mensaje:
+Jarvis, modifica el borrador para linaonelsona0125@gmail.com sobre Razer, cambia el asunto a "Actualizacion Razer" y el cuerpo a "Nuevo contenido del borrador."
+
+Debe pasar:
+- Cambia subject y body.
+- Conserva destinatario.
+- updated_fields.subject = true.
+- updated_fields.body = true.
+
+
+5. FALTA QUE CAMBIAR OK
+
+Mensaje:
+Jarvis, modifica el borrador para linaonelsona0125@gmail.com sobre Razer
+
+Debe pasar:
+- No actualiza.
+- Retorna reason: missing_update_fields.
+
+
+6. FALTA INFORMACION PARA IDENTIFICAR EL BORRADOR - FAIL
+
+Mensaje:
+Jarvis, modifica un borrador y cambia el asunto a "Prueba"
+
+Debe pasar:
+- No actualiza.
+- Retorna reason: missing_draft_search_fields.
+- No debe buscar con query demasiado amplia.
+
+
+7. CERO MATCHES OK
+
+Mensaje:
+Jarvis, modifica el borrador para usuarioquenoexiste999@example.com y cambia el asunto a "Prueba"
+
+Debe pasar:
+- No actualiza.
+- Retorna reason: no_matching_draft.
+
+
+8. VARIOS MATCHES
+
+Mensaje:
+Jarvis, modifica los borradores para linacastano03@gmail.com y cambia el asunto a "Asunto actualizado"
+
+Debe pasar:
+- No actualiza todavia.
+- Retorna reason: multiple_matching_drafts.
+- Lista los borradores encontrados.
+- Guarda tool_state con:
+  - drafts
+  - new_recipient_email
+  - new_subject
+  - new_body
+
+
+9. SELECCION POSTERIOR VALIDA
+
+Precondicion:
+Ejecutar primero el caso 8 y obtener varios borradores.
+
+Mensaje:
+Actualiza el segundo
+
+Debe pasar:
+- Usa selected_result_index: 2.
+- Recupera drafts desde tool_state.
+- Recupera new_subject desde tool_state.
+- Actualiza solo el borrador seleccionado.
+- Borra tool_state despues de actualizar.
+
+
+10. SELECCION POSTERIOR INVALIDA
+
+Precondicion:
+Ejecutar primero una busqueda que muestre, por ejemplo, 3 borradores.
+
+Mensaje:
+Actualiza el 9
+
+Debe pasar:
+- No actualiza.
+- Retorna reason: invalid_selected_result_index.
+
+
+11. SELECCION SIN TOOL STATE
+
+Mensaje:
+Actualiza el primero
+
+Debe pasar:
+- No debe inventar contexto.
+- Si llega al backend, retorna reason: missing_tool_state.
+
+
+12. EXPANDIR BUSQUEDA
+
+Precondicion:
+Ejecutar una busqueda que encuentre varios borradores y tenga has_more = true.
+
+Mensaje:
+Muestrame mas
+
+Debe pasar:
+- Usa gmail_update_email_draft.
+- No usa gmail_search_drafted_emails.
+- Mantiene recipient_hint, search_keywords, start_date, end_date y new_*.
+- Cambia solo max_results a 15.
+- No actualiza ningun borrador todavia.
+
+
+13. RECENT DRAFT - ULTIMO BORRADOR - CAMBIAR SOLO ASUNTO
+
+Mensaje:
+Jarvis, cambia el asunto del ultimo borrador a "Nuevo asunto ultimo"
+
+Debe pasar:
+- Usa selection_type: recent_draft.
+- recent_draft_index: 1.
+- Cambia solo subject.
+- Conserva destinatario y body originales.
+
+
+14. RECENT DRAFT - PENULTIMO BORRADOR - CAMBIAR SOLO BODY
+
+Mensaje:
+Jarvis, cambia el cuerpo del penultimo borrador a "Nuevo cuerpo del penultimo"
+
+Debe pasar:
+- Usa selection_type: recent_draft.
+- recent_draft_index: 2.
+- Cambia solo body.
+- Conserva destinatario y subject originales.
+
+
+15. RECENT DRAFT SIN QUE CAMBIAR
+
+Mensaje:
+Jarvis, modifica el ultimo borrador
+
+Debe pasar:
+- No actualiza.
+- Retorna reason: missing_update_fields.
+
+
+16. RECENT DRAFT INDICE INEXISTENTE
+
+Mensaje:
+Jarvis, modifica el decimo borrador y cambia el asunto a "Prueba"
+
+Debe pasar:
+- No actualiza si no existe esa posicion.
+- Retorna reason: invalid_recent_draft_index.
+
+
+17. NO USAR LOS VALORES NUEVOS PARA BUSCAR
+
+Mensaje:
+Jarvis, modifica el borrador para Hernan y cambia el destinatario a lina@example.com
+
+Debe pasar:
+- Busca el borrador usando Hernan como recipient_hint actual.
+- No debe buscar usando lina@example.com.
+- lina@example.com solo debe ir en new_recipient_email.
+
+
+18. NO MEZCLAR UPDATE CON SEND
+
+Mensaje:
+Jarvis, modifica el borrador para Lina y envialo
+
+Debe pasar:
+- No debe actualizar y enviar silenciosamente en una sola accion.
+- Debe pedir confirmacion o manejar solo una intencion.
+
+
+CASOS MAS CRITICOS
+
+Si tienes poco tiempo, prueba minimo:
+1, 5, 6, 8, 9, 12, 13, 14 y 17.
+

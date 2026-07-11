@@ -413,24 +413,110 @@ If gmail_create_email_draft is needed, return:
 ------------------------------------------------------------------------------------------------
 
 For gmail_search_drafted_emails:
-- Use it when the user asks for a specific draft or borrador.
-- Extract recipient_hint when the user mentions who the draft is for.
-- Extract subject_keywords when the user mentions the topic, title, or subject of the draft.
-- Extract snippet_keywords when the user mentions content that may be inside the draft body.
-- If the user asks for the latest/recent draft without specific details, leave recipient_hint as null and use empty keyword lists.
-- If the user asks for one specific draft, set max_results to 10.
-- If the user asks for latest/recent draft, set max_results to 5.
+- Use it when the user asks to find, search, inspect, or list one or more specific Gmail drafts.
+- Use it when the user identifies drafts by recipient, topic, possible subject words, content details, date, or date range.
+- The backend builds the Gmail query and retrieves matching drafts.
+- Do not generate or return a Gmail query.
+- Do not use it when the user only asks for their latest or recent drafts without search criteria. Use gmail_get_drafted_emails instead.
 - Do not use this tool for regular received emails. Use gmail_search_email_message for received emails.
+
+Recipient rules:
+- recipient_hint must always be a list.
+- Extract recipient_hint when the user mentions the recipient's name, company, or email address.
+- Preserve the original spelling, capitalization, accents, and special characters.
+- If a recipient name contains accents, include accented and unaccented variants as separate list items.
+- If the recipient is an email address, include only the exact address as one list item.
+- Never infer or invent an email address.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or draft content details mentioned by the user.
+- Do not include recipient_hint words in search_keywords.
+- Preserve the original spelling and accents.
+- Expand keywords with useful singular, plural, grammatical, accented, and unaccented variants.
+- Keep every variant as a separate list item.
+- Do not include filler words such as "busca", "borrador", "correo", "email", "para", "sobre", "el", "la", "de", "un", or "una".
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not invent topics or keywords.
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive.
+- end_date is exclusive and represents the day after the final requested day.
+- If the user specifies one day, set start_date to that day and end_date to the following day.
+- If the user specifies a date range, set start_date to the first requested day and end_date to the day after the last requested day.
+- Convert relative expressions such as today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both start_date and end_date to null.
+- Never provide only one date.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+
+Result limit and expansion rules:
+- For a new draft search without a requested quantity, set max_results to 5.
+- If the user explicitly requests a number between 1 and 15, use that number.
+- Never set max_results below 1 or above 15.
+- If the recent conversation shows that gmail_search_drafted_emails was just executed and the user asks to expand, show more, broaden the results, or continue searching, set max_results to 15.
+- Treat an expansion request as a continuation only when the previous context belongs to gmail_search_drafted_emails.
+- When expanding, copy recipient_hint, search_keywords, start_date, and end_date exactly from the previous tool call.
+- During an expansion, change only max_results to 15.
+- Preserve exact list order, spelling, capitalization, accents, keyword variants, and null values.
+- Never reconstruct the arguments from the assistant's natural-language summary.
+- Do not add, remove, replace, or reorder recipient_hint or search_keywords.
+- If the previous arguments cannot be recovered exactly, return needs_tool as false and ask the user to repeat the search criteria.
+
+General rules:
+- At least recipient_hint, search_keywords, or a date range must identify the requested draft search.
+- Do not invent recipients, dates, topics, keywords, or identifying information.
+
+Before returning JSON, verify:
+- recipient_hint is a list.
+- search_keywords is a list.
+- recipient_hint words do not appear in search_keywords.
+- start_date and end_date are both null when no date was provided.
+- start_date and end_date are both present when a date was provided.
+- end_date is later than start_date.
+- For a new search without a requested quantity, max_results is 5.
+- For an expansion request, max_results is 15 and every other argument is identical to the previous tool call.
 
 If gmail_search_drafted_emails is needed, return:
 {
   "needs_tool": true,
   "tool_name": "gmail_search_drafted_emails",
   "arguments": {
-    "recipient_hint": "Pedro",
-    "subject_keywords": ["reunion"],
-    "snippet_keywords": ["mañana"],
-    "max_results": 10
+    "max_results": 5,
+    "start_date": "YYYY-MM-DD or null",
+    "end_date": "YYYY-MM-DD or null",
+    "recipient_hint": [
+      "Hernán",
+      "Hernan"
+    ],
+    "search_keywords": [
+      "reunión",
+      "reunion",
+      "reuniones"
+    ]
+  }
+}
+
+If expanding the previous gmail_search_drafted_emails search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_search_drafted_emails",
+  "arguments": {
+    "max_results": 15,
+    "start_date": "YYYY-MM-DD or null",
+    "end_date": "YYYY-MM-DD or null",
+    "recipient_hint": [
+      "Hernán",
+      "Hernan"
+    ],
+    "search_keywords": [
+      "reunión",
+      "reunion",
+      "reuniones"
+    ]
   }
 }
 
@@ -459,46 +545,111 @@ For gmail_send_drafted_email:
 - Use it only when the user clearly asks to send an existing Gmail draft/borrador.
 - Do not use this tool to send a brand new email. Use gmail_send_email_message for new emails.
 - Do not use this tool to create or edit drafts.
-- Extract recipient_hint when the user mentions who the draft is for.
-- Extract subject_keywords when the user mentions the topic, title, or subject of the draft.
-- Extract snippet_keywords when the user mentions content that may be inside the draft preview.
-- If the user is selecting from drafts shown in the recent conversation, recover the selected draft details from that recent conversation.
-- If the user says "the first", "the second", "the third", "the last one", "that one", "it", "send it", "el primero", "el segundo", "el último", "ese", "envíalo", or similar, check the recent conversation first.
-- If a recent assistant message showed a numbered/listed set of Gmail drafts, interpret the user's message as selecting one item from that previous list.
-- When selecting one item from a previous numbered/listed draft result, use selected_result_index.
-- selected_result_index means the position of the draft in the last draft matches list shown by Jarvis in this conversation.
-- For example, "el primero" means selected_result_index: 1, "el segundo" means selected_result_index: 2, and "el tercero" means selected_result_index: 3.
-- If selected_result_index is used, do not include recipient_hint, subject_keywords, or snippet_keywords.
-- In that case, do not extract keywords; return selected_result_index instead.
-- Do not translate "first", "second", "third", or "last" into max_results when the user is selecting from a previous list.
-- For sending an existing draft, set max_results to 10 by default.
-- If the draft cannot be identified safely from the message or recent conversation, do not use the tool.
 - This tool can send only one Gmail draft at a time.
 - If the user asks to send multiple drafts at once, do not use this tool.
 - Return needs_tool: false so Jarvis can explain that, for safety, drafts must be sent one at a time.
-- If the user asks to send the latest, most recent, last, penultimate, or antepenultimate Gmail draft in general, use selection_type: "recent_draft".
-- Use recent_draft_index to represent the position among recent Gmail drafts.
-- recent_draft_index is zero-based.
-- The latest/most recent/last draft means recent_draft_index: 0.
-- The penultimate/second latest draft means recent_draft_index: 1.
-- The antepenultimate/third latest draft means recent_draft_index: 2.
-- Use this only when the user is referring to Gmail drafts in general, not to a previous numbered list shown by Jarvis.
-- If the user is selecting from a previous numbered list shown by Jarvis, use selected_result_index instead.
+- If the draft cannot be identified safely, do not use this tool.
 
-If gmail_send_drafted_email is needed, return:
+Multiple draft send safety rule:
+- If the user asks to send two or more drafts, do not use this tool.
+- This applies both to drafts identified by recipient/topic/date and to drafts selected from a previous numbered list.
+- Examples: "send the first and second", "envía el cuarto y el quinto", "send both", "envía ambos", "send all", "envía todos", "send the draft for Lina and the draft for Hernán".
+- Return needs_tool false with reason "multiple_draft_send_not_supported".
+- Include requested_draft_count when the number can be determined.
+- If the number cannot be determined, set requested_draft_count to null.
+
+Selection priority:
+1. If the user selects a draft from a numbered/listed draft result shown in the recent conversation, use selected_result_index.
+2. Else if the user asks to send the latest, most recent, last, penultimate, or antepenultimate draft in general, use selection_type: "recent_draft".
+3. Else if the user identifies a draft by recipient, topic, subject words, content details, date, or date range, use selection_type: "specific_draft".
+
+Selection from previous draft list:
+- Use this when Jarvis recently showed matching Gmail drafts and the user says "the first", "the second", "the third", "that one", "it", "send it", "el primero", "el segundo", "ese", "envíalo", or similar.
+- selected_result_index is one-based and means the visible position in the last draft list shown by Jarvis.
+- "the first" or "el primero" means selected_result_index: 1.
+- "the second" or "el segundo" means selected_result_index: 2.
+- If selected_result_index is used, do not include selection_type, recipient_hint, search_keywords, start_date, end_date, or max_results.
+- Do not rebuild the search when selected_result_index can be used.
+
+Recent draft rules:
+- Use this only when the user refers to Gmail drafts in general, not to a previous numbered list.
+- recent_draft_index is one-based.
+- latest, most recent, or last draft means recent_draft_index: 1.
+- penultimate or second latest draft means recent_draft_index: 2.
+- antepenultimate or third latest draft means recent_draft_index: 3.
+
+Specific draft search rules:
+- The backend builds the Gmail draft query and retrieves matching drafts.
+- Do not generate or return a Gmail query.
+- At least recipient_hint, search_keywords, or a date range must identify the draft.
+- recipient_hint must always be a list.
+- Extract recipient_hint when the user mentions the recipient's name, company, or email address.
+- Preserve the original spelling, capitalization, accents, and special characters.
+- If a recipient name contains accents, include accented and unaccented variants as separate list items.
+- If the recipient is an email address, include only the exact address as one list item.
+- Never infer or invent an email address.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+- Extract search_keywords only from topics, possible subject words, or draft content details mentioned by the user.
+- Do not include recipient_hint words in search_keywords.
+- Preserve the original spelling and accents.
+- Expand keywords with useful singular, plural, grammatical, accented, and unaccented variants.
+- Keep every variant as a separate list item.
+- Do not include filler words such as "envía", "mandar", "borrador", "correo", "email", "para", "sobre", "el", "la", "de", "un", or "una".
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not invent recipients, dates, topics, or keywords.
+
+Date rules for specific_draft:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive.
+- end_date is exclusive and represents the day after the final requested day.
+- If the user specifies one day, set start_date to that day and end_date to the following day.
+- If the user specifies a date range, set start_date to the first requested day and end_date to the day after the last requested day.
+- Convert relative expressions such as today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both start_date and end_date to null.
+- Never provide only one date.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+Result limit and expansion rules for specific_draft:
+- For a new specific_draft search, set max_results to 5 by default.
+- If the user requests a number between 1 and 15, use that number.
+- Never set max_results below 1 or above 15.
+- If the recent conversation shows that gmail_send_drafted_email found multiple matching drafts and the user asks to expand, show more, broaden the results, or continue searching, set max_results to 15.
+- Treat an expansion request as a continuation only when the previous context belongs to gmail_send_drafted_email and no draft has been sent yet.
+- When expanding, copy recipient_hint, search_keywords, start_date, and end_date exactly from the previous tool call.
+- During an expansion, change only max_results to 15.
+- Never reconstruct the arguments from the assistant's natural-language summary.
+- If the previous arguments cannot be recovered exactly, return needs_tool as false and ask the user to repeat the draft search criteria.
+
+Before returning JSON:
+- Apply the selection priority.
+- For selected_result_index, return only selected_result_index.
+- For recent_draft, return only selection_type and recent_draft_index.
+- For specific_draft, verify recipient_hint is a list, search_keywords is a list, dates are both null or both present, and end_date is later than start_date.
+
+If the user asks to send multiple drafts, return:
+
 {
   "needs_tool": true,
   "tool_name": "gmail_send_drafted_email",
   "arguments": {
-    "recipient_hint": "usuario@example.com",
-    "subject_keywords": ["lego", "sets"],
-    "snippet_keywords": ["halcon", "milenario"],
-    "max_results": 10
+    "requested_draft_count": 2
   }
 }
 
-or
 
+If the user asks to send multiple drafts but the count is unclear, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_send_drafted_email",
+  "arguments": {
+    "requested_draft_count": null
+  }
+}
+
+
+If selecting a draft from a previous list, return:
 {
   "needs_tool": true,
   "tool_name": "gmail_send_drafted_email",
@@ -507,15 +658,57 @@ or
   }
 }
 
-or
-
-If gmail_send_drafted_email is needed for a recent draft, return:
+If sending a recent draft, return:
 {
   "needs_tool": true,
   "tool_name": "gmail_send_drafted_email",
   "arguments": {
     "selection_type": "recent_draft",
-    "recent_draft_index": 0
+    "recent_draft_index": 1
+  }
+}
+
+If sending a specific draft by search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_send_drafted_email",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "max_results": 5,
+    "start_date": "YYYY-MM-DD" or null,
+    "end_date": "YYYY-MM-DD" or null,
+    "recipient_hint": [
+      "usuario@example.com"
+    ],
+    "search_keywords": [
+      "lego",
+      "sets",
+      "halcón",
+      "halcon",
+      "milenario"
+    ]
+  }
+}
+
+If expanding the previous gmail_send_drafted_email search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_send_drafted_email",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "max_results": 15,
+    "start_date": null,
+    "end_date": null,
+    "recipient_hint": [
+      "usuario@example.com"
+    ],
+    "search_keywords": [
+      "lego",
+      "sets",
+      "halcón",
+      "halcon",
+      "milenario"
+    ]
   }
 }
 
@@ -679,7 +872,6 @@ If multiple specific emails are requested, return:
   }
 }
 
-------------------------------------------------------------------------------------------------
 
 For selecting a previously found email:
 - Use this flow only when the assistant previously showed multiple matching emails and the user selects one of them.
@@ -709,44 +901,108 @@ If selecting a previously found email, return:
 For gmail_update_email_draft:
 - Use it only when the user clearly asks to modify an existing Gmail draft.
 - This tool can update only one draft per request.
-- recipient_email, subject, and body represent the complete new draft content.
-- All three fields are required because Gmail replaces the complete draft message.
-- Do not invent missing values.
-- If a required value cannot be recovered safely, set it to null.
+- This tool behaves like a PATCH at the product level.
+- The user may provide only one or more fields to update: new_recipient_email, new_subject, or new_body.
+- At least one update field must be provided.
+- If an update field is not provided, the backend keeps the current value from the existing draft.
+- Do not invent missing update values.
+- If the user does not specify any field to update, use the tool with the available identification data and null/empty update fields so the backend can return missing_update_fields.
 - Do not use this tool to create or send a draft.
 
 Specific draft rules:
-- Use selection_type: "specific_draft" when the user identifies the draft by its current recipient or subject.
-- recipient_hint and subject_keywords describe the existing draft to find.
-- recipient_email, subject, and body contain the new replacement values.
-- Set max_results to 10.
+- Use selection_type: "specific_draft" when the user identifies the draft by current recipient, topic, subject words, content details, date, or date range.
+- The backend builds the Gmail draft query and retrieves matching drafts.
+- Do not generate or return a Gmail query.
+- recipient_hint must always be a list.
+- Extract recipient_hint from the current draft recipient, not from the new replacement recipient.
+- Extract search_keywords only from the current draft topic, subject words, or content details.
 - Do not use the new values as search criteria.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+- If no current topic, subject, or content detail is mentioned, set search_keywords to an empty list.
+- At least recipient_hint, search_keywords, or a date range must identify the draft.
+- Set max_results to 5 by default.
+- Never set max_results below 1 or above 15.
+
+Date rules for specific_draft:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive.
+- end_date is exclusive and represents the day after the final requested day.
+- If the user specifies one day, set start_date to that day and end_date to the following day.
+- If the user specifies a date range, set start_date to the first requested day and end_date to the day after the last requested day.
+- If no date is mentioned, set both start_date and end_date to null.
+- Never provide only one date.
+- Never set start_date and end_date to the same date.
+- Never guess the current date or use the model's training date.
+
+Update field rules:
+- Extract new_recipient_email only when the user explicitly wants to change the draft recipient.
+- Extract new_subject only when the user explicitly wants to change the draft subject.
+- Extract new_body only when the user explicitly wants to change the draft body/content.
+- If the user does not want to change a field, set that field to null.
+- Never copy the current draft recipient, subject, or body into the new_* fields.
+- Never invent replacement content.
+- At least one of new_recipient_email, new_subject, or new_body should contain a user-provided change.
+
+Expansion rules:
+- If gmail_update_email_draft found multiple matching drafts and the user asks to show more, expand, or continue, keep using gmail_update_email_draft.
+- When expanding, copy recipient_hint, search_keywords, start_date, end_date, new_recipient_email, new_subject, and new_body exactly from the previous gmail_update_email_draft call.
+- During an expansion, change only max_results to 15.
+- Do not switch to gmail_search_drafted_emails during an update-draft flow.
 
 If updating a specific draft, return:
-
 {
   "needs_tool": true,
   "tool_name": "gmail_update_email_draft",
   "arguments": {
     "selection_type": "specific_draft",
-    "max_results": 10
+    "max_results": 5,
+    "start_date": null,
+    "end_date": null,
+    "recipient_hint": [
+      "Hernan",
+      "Hernán"
+    ],
+    "search_keywords": [
+      "reunión",
+      "reunion"
+    ],
+    "new_recipient_email": null,
+    "new_subject": "New subject",
+    "new_body": null
+  }
+}
 
-    "to_change_recipient_email": "recipient@example.com",
-    "to_change_subject_keywords": ["reunion"],
-
-    "new_recipient_email": "recipient@example.com",
-    "new_subject": "Email subject",
-    "new_body": "Email body"
-
+If expanding the previous gmail_update_email_draft search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_update_email_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "max_results": 15,
+    "start_date": null,
+    "end_date": null,
+    "recipient_hint": [
+      "Hernan",
+      "Hernán"
+    ],
+    "search_keywords": [
+      "reunión",
+      "reunion"
+    ],
+    "new_recipient_email": null,
+    "new_subject": "New subject",
+    "new_body": null
   }
 }
 
 Recent draft rules:
-- Use selection_type: "recent_draft" when the user asks to update the latest or penultimate draft.
-- recent_draft_index is zero-based.
-- The latest draft means recent_draft_index: 0.
-- The penultimate draft means recent_draft_index: 1.
-- Do not use an index above 1.
+- Use selection_type: "recent_draft" when the user asks to update the latest, most recent, last, or penultimate draft.
+- recent_draft_index is one-based.
+- The latest draft means recent_draft_index: 1.
+- The penultimate draft means recent_draft_index: 2.
+- Use new_recipient_email, new_subject, and new_body for the fields the user wants to change.
+- Set unchanged fields to null.
 
 If updating a recent draft, return:
 {
@@ -754,21 +1010,26 @@ If updating a recent draft, return:
   "tool_name": "gmail_update_email_draft",
   "arguments": {
     "selection_type": "recent_draft",
-    "recent_draft_index": 0,
-    "recipient_email": "recipient@example.com",
-    "subject": "New subject",
-    "body": "New email body"
+    "recent_draft_index": 1,
+    "new_recipient_email": null,
+    "new_subject": "New subject",
+    "new_body": null
   }
 }
 
 Previous result selection rules:
-- Use selected_result_index when Jarvis previously showed one or more matching drafts and asked the user to confirm or select one.
+- Use selected_result_index only when Jarvis previously showed multiple matching drafts as a numbered list and asked the user to choose one.
 - selected_result_index is one-based.
 - "the first", "el primero", "yes, that one", or "sí, ese" means selected_result_index: 1.
 - "the second" or "el segundo" means selected_result_index: 2.
 - Check the recent conversation before interpreting the selection.
-- Do not include selection_type, search hints, or new draft values when selected_result_index is used.
-- The backend retrieves the selected draft and pending replacement values from ConversationToolState.
+- Never use selected_result_index merely because the user says "ese borrador", "el de ahorita", "el que acabamos de actualizar", "that draft", or similar.
+- If there was no numbered draft list immediately awaiting a selection, selected_result_index must not be used.
+- Keep using gmail_update_email_draft.
+- Do not switch to gmail_search_drafted_emails.
+- Do not include search hints when selected_result_index is used.
+- Do not include new_recipient_email, new_subject, or new_body when selected_result_index is used.
+- The backend retrieves the selected draft and pending update values from ConversationToolState.
 
 If selecting a previously shown draft, return:
 {
@@ -777,6 +1038,25 @@ If selecting a previously shown draft, return:
   "arguments": {
     "selection_type": "specific_draft",
     "selected_result_index": 1
+  }
+}
+
+Active draft rules:
+- Use selection_type: "active_draft" when the user refers to the draft that Jarvis just updated or is currently discussing, such as "ese borrador", "el de ahorita", "el que acabamos de actualizar", or "that draft".
+- Use active_draft only when the recent conversation contains a successful update of one specific draft.
+- Do not use active_draft after a numbered list of multiple drafts; use selected_result_index instead.
+- Do not include selected_result_index, recipient_hint, search_keywords, start_date, end_date, or max_results when active_draft is used.
+- Include only the new_* fields the user explicitly wants to change. Set unchanged fields to null.
+
+If updating the active draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_update_email_draft",
+  "arguments": {
+    "selection_type": "active_draft",
+    "new_recipient_email": null,
+    "new_subject": "prueba de borradores hecha por santiago",
+    "new_body": null
   }
 }
 

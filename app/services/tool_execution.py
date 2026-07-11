@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
+from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
 from app.tools.registry import TOOLS
 
 
@@ -23,6 +23,8 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
     if tool_function == gmail_read_specific_email_tool:
         return gmail_read_specific_email_tool(arguments=arguments, user_id=user_id, session=session,
         conversation_id=conversation_id)
+    if tool_function == gmail_search_drafted_emails_tool:
+        return gmail_search_drafted_emails_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
     #esto devuelve la funcion EJECUTADA
     return tool_function(arguments=arguments, user_id=user_id, session=session)
 
@@ -212,20 +214,57 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Keep the response concise and easy to scan.
         """
     if tool_name == "gmail_search_drafted_emails":
+        drafts = tool_result.get("drafts", [])
+        returned_count = tool_result.get("returned_count", len(drafts))
+        has_more = tool_result.get("has_more", False)
+
+        if has_more and returned_count < 15:
+            draft_expansion_instruction = (
+                f"Tell the user that only {returned_count} matching drafts are "
+                "currently shown and that more are available. Ask whether they "
+                "want to expand the search up to 15 drafts."
+            )
+        elif has_more:
+            draft_expansion_instruction = (
+                "Tell the user that 15 matching drafts are currently shown, which "
+                "is the maximum display limit. More drafts are available, so do "
+                "not claim these are all the results. Suggest refining the search "
+                "by recipient, subject, keyword, or date."
+            )
+        else:
+            draft_expansion_instruction = (
+                "No additional page of matching drafts is available. Do not offer "
+                "to expand the search."
+            )
+
         return f"""
             A Gmail draft search tool was executed.
 
             Tool result:
             {tool_result}
 
-            These results are Gmail drafts, not received emails and not sent emails.
+            Mandatory pagination instruction:
+            {draft_expansion_instruction}
 
             Rules for answering:
-            - If the result is empty, tell the user no matching draft was found.
-            - If there is one draft, summarize the draft using to, subject, and snippet.
-            - If there are multiple drafts, show the main differences and ask the user which draft they mean.
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - These results are Gmail drafts, not received emails and not sent emails.
+            - Use returned_count to describe how many drafts are currently shown.
+            - Do not describe returned_count as the user's total number of drafts.
+            - If no drafts were returned, clearly state that no matching draft was found.
+            - If one draft was returned, present its recipient, subject, date, and a short description based only on its snippet.
+            - If multiple drafts were returned, list every returned draft in its existing order.
+            - For each draft, show position, recipient, subject, date, and a short description based only on its snippet.
+            - Never claim that all matching drafts were found when has_more is true.
+            - Follow the mandatory pagination instruction exactly.
+            - After listing drafts, invite the user to identify one and specify what they want to do with it.
             - Do not say the draft was sent.
+            - Do not claim to have read content beyond the available metadata and snippet.
+            - Do not invent recipients, subjects, dates, snippets, counts, or drafts.
+            - Do not mention internal tool names, queries, scores, or ranking logic.
             - Do not expose draft_id unless the user explicitly asks for technical details.
+            - Keep the response concise and easy to scan.
         """
     if tool_name == "gmail_get_drafted_emails":
         return f"""
@@ -246,6 +285,138 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Do not say the drafts were sent.
             - Do not expose draft_id unless the user explicitly asks for technical details.
     """
+    if tool_name == "gmail_send_drafted_email":
+        reason = tool_result.get("reason")
+        matching_drafts = tool_result.get("matching_drafts_found", [])
+        returned_count = tool_result.get("returned_count", len(matching_drafts))
+        has_more = tool_result.get("has_more", False)
+
+        if reason == "multiple_matching_drafts":
+            if has_more and returned_count < 15:
+                draft_expansion_instruction = (
+                    f"Tell the user that only {returned_count} matching drafts are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 drafts or send one of the listed drafts."
+                )
+            elif has_more:
+                draft_expansion_instruction = (
+                    "Tell the user that 15 matching drafts are currently shown, which "
+                    "is the maximum display limit. More drafts are available, so do "
+                    "not claim these are all the results. Ask them to select one of "
+                    "the listed drafts or refine the search."
+                )
+            else:
+                draft_expansion_instruction = (
+                    "No additional page of matching drafts is available. Do not offer "
+                    "to expand the search. Ask the user to select one of the listed drafts."
+                )
+
+            return f"""
+                A Gmail draft-send tool was executed, but no draft was sent.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {draft_expansion_instruction}
+
+                Rules for answering:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that multiple matching drafts were found and no draft was sent yet.
+                - List every item from matching_drafts_found in its existing order.
+                - For each draft, show position, recipient, subject, date, and a short description based only on its snippet.
+                - Ask which numbered draft the user wants to send.
+                - Follow the mandatory pagination instruction exactly.
+                - Do not claim that the draft was sent.
+                - Do not invent recipients, subjects, dates, snippets, counts, or drafts.
+                - Do not expose draft_id unless the user explicitly asks for technical details.
+                - Keep the response concise and easy to scan.
+            """
+
+        return f"""
+            A Gmail draft-send tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If sent is true, tell the user the draft was sent.
+            - If sent is false, explain the reason naturally.
+            - Do not claim success unless sent is true.
+            - If available_drafts is present, list the available drafts and ask the user to choose one.
+            - Do not invent missing information.
+            - Do not expose draft_id unless the user explicitly asks for technical details.
+            - Keep the response concise.
+        """
+    if tool_name == "gmail_update_email_draft":
+        reason = tool_result.get("reason")
+        matching_drafts = tool_result.get("matching_drafts_found", [])
+        returned_count = tool_result.get("returned_count", len(matching_drafts))
+        has_more = tool_result.get("has_more", False)
+
+        if reason == "multiple_matching_drafts":
+            if has_more and returned_count < 15:
+                draft_expansion_instruction = (
+                    f"Tell the user that only {returned_count} matching drafts are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 drafts or update one of the listed drafts."
+                )
+            elif has_more:
+                draft_expansion_instruction = (
+                    "Tell the user that 15 matching drafts are currently shown, which "
+                    "is the maximum display limit. More drafts are available, so do "
+                    "not claim these are all the results. Ask them to select one of "
+                    "the listed drafts or refine the search."
+                )
+            else:
+                draft_expansion_instruction = (
+                    "No additional page of matching drafts is available. Do not offer "
+                    "to expand the search. Ask the user to select one of the listed drafts."
+                )
+
+            return f"""
+                A Gmail draft-update tool was executed, but no draft was updated.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {draft_expansion_instruction}
+
+                Rules for answering:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that multiple matching drafts were found and no draft was updated yet.
+                - List every item from matching_drafts_found in its existing order.
+                - For each draft, show position, recipient, subject, date, and a short description based only on its snippet.
+                - Ask which numbered draft the user wants to update.
+                - Follow the mandatory pagination instruction exactly.
+                - Do not claim that any draft was updated.
+                - Do not invent recipients, subjects, dates, snippets, counts, or drafts.
+                - Do not expose draft_id unless the user explicitly asks for technical details.
+                - Keep the response concise and easy to scan.
+            """
+
+        return f"""
+            A Gmail draft-update tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If updated is true, tell the user the draft was updated.
+            - If updated is false, explain the reason naturally.
+            - Do not claim success unless updated is true.
+            - If available_drafts is present, list the available drafts and ask the user to choose one.
+            - Do not invent missing information.
+            - Do not expose draft_id unless the user explicitly asks for technical details.
+            - Keep the response concise.
+        """
     if tool_name == "gmail_read_specific_email":
         reason = tool_result.get("reason")
 

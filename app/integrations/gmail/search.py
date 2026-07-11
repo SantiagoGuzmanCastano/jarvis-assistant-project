@@ -54,8 +54,6 @@ def build_gmail_query(search_scope: str, start_date: str | None, end_date:str | 
 
     query = base_query_parts + query_parts
 
-    for_sent_query = query_parts
-
     if search_scope == "unread":
         unread_query_parts = ["in:inbox","is:unread"]
         built_query = unread_query_parts + query  
@@ -68,8 +66,48 @@ def build_gmail_query(search_scope: str, start_date: str | None, end_date:str | 
         
     if search_scope == "sent":
         sent_query_parts = ["in:sent"]
-        built_query = sent_query_parts + for_sent_query
+        built_query = sent_query_parts + query_parts
         return " ".join(built_query)
+
+    if search_scope == "draft":
+        draft_query_parts = ["in:drafts"]
+
+        if recipient_hint:
+            draft_recipient_terms = []
+
+            for recipient in recipient_hint:
+                if "@" in recipient:
+                    draft_recipient_terms.append(f'to:"{recipient}"')
+                    draft_recipient_terms.append(f'"{recipient}"')
+                else:
+                    draft_recipient_terms.append(f'"{recipient}"')
+
+            draft_query_parts.append(
+                f"({' OR '.join(draft_recipient_terms)})"
+            )
+
+        if start_date:
+            start_datetime = datetime.combine(
+                date.fromisoformat(start_date),
+                time.min,
+                tzinfo=user_timezone,
+            )
+            draft_query_parts.append(f"after:{int(start_datetime.timestamp())}")
+
+        if end_date:
+            end_datetime = datetime.combine(
+                date.fromisoformat(end_date),
+                time.min,
+                tzinfo=user_timezone,
+            )
+            draft_query_parts.append(f"before:{int(end_datetime.timestamp())}")
+
+        if search_keywords:
+            draft_query_parts.append(
+                f"({' OR '.join(search_keywords)})"
+            )
+
+        return " ".join(draft_query_parts)
     
     return " ".join(base_query_parts + query_parts)
     

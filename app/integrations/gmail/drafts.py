@@ -1,8 +1,11 @@
 
 
 import base64
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
 import unicodedata
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -41,15 +44,27 @@ def create_gmail_draft(access_token:str, body:str, subject:str, recipient_email:
 GOOGLE_DRAFTS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
 
 
-def fetch_gmail_drafts_ids(access_token:str, max_results:int):
+def fetch_gmail_drafts_ids(
+    access_token: str,
+    max_results: int,
+    query: str | None = None,
+    page_token: str | None = None,
+):
     
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
 
-    params={
+    params: dict[str, str | int] = {
         "maxResults": max_results,
     }
+
+    if query:
+        params["q"] = query
+
+    if page_token:
+        params["pageToken"] = page_token
+
     response = requests.get(GOOGLE_DRAFTS_URL, headers=headers, params=params)
     response.raise_for_status()
 
@@ -70,7 +85,7 @@ def fetch_gmail_drafts_ids(access_token:str, max_results:int):
 # }
 
 
-def fetch_gmail_draft_metadata(draft_id: int, access_token: str):
+def fetch_gmail_draft_metadata(draft_id: str, access_token: str):
 
     headers = {
         "Authorization": f"Bearer {access_token}"
@@ -84,6 +99,218 @@ def fetch_gmail_draft_metadata(draft_id: int, access_token: str):
     response = requests.get(f"{GOOGLE_DRAFTS_URL}/{draft_id}", headers=headers, params=params)
     response.raise_for_status()
     return response.json()
+
+
+def fetch_gmail_draft_full(draft_id: str, access_token: str):
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params = {
+        "format": "full",
+    }
+
+    response = requests.get(
+        f"{GOOGLE_DRAFTS_URL}/{draft_id}",
+        headers=headers,
+        params=params,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def format_gmail_draft_candidate(draft: dict, position: int) -> dict:
+    message = draft.get("message", {})
+    headers = {
+        header.get("name", "").lower(): header.get("value", "")
+        for header in message.get("payload", {}).get("headers", [])
+    }
+
+    date_value = headers.get("date", "")
+    internal_date = message.get("internalDate")
+    utc_timezone = ZoneInfo("UTC")
+    user_timezone = ZoneInfo("America/Bogota")
+
+    if internal_date:
+        try:
+            date_value = datetime.fromtimestamp(
+                int(internal_date) / 1000,
+                tz=utc_timezone,
+            ).astimezone(user_timezone).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
+    elif date_value:
+        try:
+            parsed_date = parsedate_to_datetime(date_value)
+            if parsed_date.tzinfo is None:
+                parsed_date = parsed_date.replace(tzinfo=utc_timezone)
+            date_value = parsed_date.astimezone(user_timezone).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    return {
+        "position": position,
+        "draft_id": draft.get("id"),
+        "to": headers.get("to", ""),
+        "subject": headers.get("subject", ""),
+        "date": date_value,
+        "snippet": message.get("snippet", ""),
+    }
+
+def find_text_body(payload: dict) -> str | None:
+    mime_type = payload.get("mimeType", "")
+    body_data = payload.get("body", {}).get("data")
+
+    if mime_type == "text/plain" and body_data:
+        return body_data
+
+    for part in payload.get("parts", []):
+        body_data = find_text_body(part)
+
+        if body_data:
+            return body_data
+
+    return None
+
+def format_gmail_draft_full(draft: dict, position: int) -> dict:
+    message = draft.get("message", {})
+
+    headers = {
+        header.get("name", "").lower(): header.get("value", "")
+        for header in message.get("payload", {}).get("headers", [])
+    }
+
+    date_value = headers.get("date", "")
+    internal_date = message.get("internalDate")
+    utc_timezone = ZoneInfo("UTC")
+    user_timezone = ZoneInfo("America/Bogota")
+
+    if internal_date:
+        try:
+            date_value = datetime.fromtimestamp(
+                int(internal_date) / 1000,
+                tz=utc_timezone,
+            ).astimezone(user_timezone).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
+    elif date_value:
+        try:
+            parsed_date = parsedate_to_datetime(date_value)
+            if parsed_date.tzinfo is None:
+                parsed_date = parsed_date.replace(tzinfo=utc_timezone)
+            date_value = parsed_date.astimezone(user_timezone).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    body_data = find_text_body(message.get("payload", {}))
+
+    if body_data:
+        padded_body = body_data + "=" * (-len(body_data) % 4)
+        decoded_body = base64.urlsafe_b64decode(padded_body)
+        body = decoded_body.decode("utf-8", errors="replace")
+    else:
+        body = message.get("snippet", "")
+
+    return {
+        "position": position,
+        "draft_id": draft.get("id"),
+        "to": headers.get("to", ""),
+        "subject": headers.get("subject", ""),
+        "date": date_value,
+        "snippet": message.get("snippet", ""),
+        "body": body,
+    }
+
+def has_real_next_draft_page(
+    access_token: str,
+    query: str,
+    next_page_token: str | None,
+) -> bool:
+    if not next_page_token:
+        return False
+
+    next_page = fetch_gmail_drafts_ids(
+        access_token=access_token,
+        max_results=1,
+        query=query,
+        page_token=next_page_token,
+    )
+
+    return bool(next_page.get("drafts"))
+
+
+def fetch_specific_gmail_drafts(access_token: str,max_results: int,query: str,) -> dict:
+    data = fetch_gmail_drafts_ids(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+
+    drafts = []
+    for position, draft in enumerate(data.get("drafts", []), start=1):
+        fetched_draft = fetch_gmail_draft_metadata(
+            access_token=access_token,
+            draft_id=draft["id"],
+        )
+        drafts.append(
+            format_gmail_draft_candidate(
+                draft=fetched_draft,
+                position=position,
+            )
+        )
+
+    has_more = has_real_next_draft_page(
+        access_token=access_token,
+        query=query,
+        next_page_token=data.get("nextPageToken"),
+    )
+
+    return {
+        "drafts": drafts,
+        "returned_count": len(drafts),
+        "has_more": has_more,
+    }
+
+
+def fetch_specific_gmail_drafts_full(access_token: str,max_results: int,query: str,) -> dict:
+    data = fetch_gmail_drafts_ids(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+
+    drafts = []
+    for position, draft in enumerate(data.get("drafts", []), start=1):
+        fetched_draft = fetch_gmail_draft_full(
+            access_token=access_token,
+            draft_id=draft["id"],
+        )
+        drafts.append(
+            format_gmail_draft_full(
+                draft=fetched_draft,
+                position=position,
+            )
+        )
+
+    has_more = has_real_next_draft_page(
+        access_token=access_token,
+        query=query,
+        next_page_token=data.get("nextPageToken"),
+    )
+
+    #esto se guarda en el payload de update_email?draft_tool
+    return {
+        "drafts": drafts,
+        "returned_count": len(drafts),
+        "has_more": has_more,
+    }
+
+
+
+
+
+
+
 
 
 def fetch_gmail_drafts(access_token: str, max_results: int):
@@ -211,126 +438,6 @@ def normalize_text(text: str | None) -> str:
             text_without_accents += character
 
     return text_without_accents
-
-
-def search_gmail_drafts(access_token: str,max_results: int, recipient_hint: str, subject_keywords: list[str], snippet_keywords:list[str]):
-
-    drafted_emails=fetch_gmail_drafts(access_token=access_token, max_results=max_results)
-
-    #EL QUE RECIBE EL EMAIL
-    recipient_hint = normalize_text(recipient_hint)
-
-    normalized_subject_keywords = []
-    for word in subject_keywords:
-        normalized_subject_keywords.append(normalize_text(word))
-
-    normalized_snippet_keywords = []
-    for word in snippet_keywords:
-        normalized_snippet_keywords.append(normalize_text(word))
-
-    matches = []
-    for draft in drafted_emails:
-
-        #caso que no existan
-        to = ""
-        subject = ""
-
-        score = 0
-
-        draft_id = draft["id"]
-        # snippet = draft['message']['snippet']
-
-        to_original = ""
-        snippet_original = ""
-        subject_original = ""
-
-        snippet = normalize_text(draft["message"].get("snippet", ""))
-        snippet_original = draft["message"].get("snippet", "")
-
-        for header in draft["message"]["payload"]['headers']:
-            if header['name'] == "To":
-                to = normalize_text(header['value'])
-                to_original = header["value"]
-            elif header['name'] == "Subject":
-                subject = normalize_text(header['value'])
-                subject_original = header["value"]
-        
-        if recipient_hint and recipient_hint in to:
-            score +=3
-
-        for word in normalized_subject_keywords:
-            if word in subject:
-                score +=3
-
-        for word in normalized_snippet_keywords:
-            if word in snippet:
-                score +=1
-
-        if score > 0:
-            matches.append({
-            "draft_id":draft_id,
-            "to": to_original,
-            "subject": subject_original,
-            "snippet": snippet_original,
-            "score": score
-            })
-
-    matches.sort(key=lambda match: match["score"], reverse=True)
-    return matches
-
-
-def search_gmail_drafts_no_snippet(access_token: str,max_results: int, recipient_hint: str, subject_keywords: list[str]):
-
-    drafted_emails=fetch_gmail_drafts(access_token=access_token, max_results=max_results)
-
-    #EL QUE RECIBE EL EMAIL
-    recipient_hint = normalize_text(recipient_hint)
-
-    normalized_subject_keywords = []
-    for word in subject_keywords:
-        normalized_subject_keywords.append(normalize_text(word))
-
-    matches = []
-    for draft in drafted_emails:
-
-        #caso que no existan
-        to = ""
-        subject = ""
-
-        score = 0
-
-        draft_id = draft["id"]
-        # snippet = draft['message']['snippet']
-
-        to_original = ""
-        subject_original = ""
-
-
-        for header in draft["message"]["payload"]['headers']:
-            if header['name'] == "To":
-                to = normalize_text(header['value'])
-                to_original = header["value"]
-            elif header['name'] == "Subject":
-                subject = normalize_text(header['value'])
-                subject_original = header["value"]
-        
-        if recipient_hint and recipient_hint in to:
-            score +=3
-
-        for word in normalized_subject_keywords:
-            if word in subject:
-                score +=3
-
-        if score > 0:
-            matches.append({
-            "draft_id":draft_id,
-            "to": to_original,
-            "subject": subject_original,
-            "score": score
-            })
-
-    matches.sort(key=lambda match: match["score"], reverse=True)
-    return matches
 
 # --------------UPDATE DRAFT---------------
 
