@@ -31,8 +31,8 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
 
 def build_tool_context(tool_name: str, tool_result: dict) -> str:
 
-    emails = tool_result.get("emails", [])
-    returned_count = tool_result.get("returned_count", len(emails))
+    emails = tool_result.get("emails")
+    returned_count = tool_result.get("returned_count")
     has_more = tool_result.get("has_more", False)
 
     if has_more and returned_count < 15:
@@ -415,6 +415,86 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - If available_drafts is present, list the available drafts and ask the user to choose one.
             - Do not invent missing information.
             - Do not expose draft_id unless the user explicitly asks for technical details.
+            - Keep the response concise.
+        """
+    if tool_name == "gmail_read_latest_email":
+        return f"""
+            A Gmail recent-email reading tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If found is false, explain that the requested recent email was not available.
+            - If found is true, present the complete content of every returned email naturally.
+            - These emails were retrieved specifically to read their complete content.
+            - Do not invent missing content, sender, subject, or date.
+            - Do not mention internal tool names or technical identifiers.
+            - Keep the response concise.
+        """
+    if tool_name == "gmail_create_reply_draft":
+        reason = tool_result.get("reason")
+        matching_emails = tool_result.get("matching_emails", [])
+        returned_count = tool_result.get("returned_count", len(matching_emails))
+        has_more = tool_result.get("has_more", False)
+
+        if reason == "multiple_matching_emails":
+            if has_more and returned_count < 15:
+                pagination_instruction = (
+                    f"Tell the user that only {returned_count} matching emails are "
+                    "currently shown and ask whether they want to expand the search "
+                    "up to 15 emails or select one to reply to."
+                )
+            elif has_more:
+                pagination_instruction = (
+                    "Tell the user that 15 matching emails are currently shown, which "
+                    "is the maximum display limit. More results are available, so do "
+                    "not claim these are all the matches. Ask the user to refine the "
+                    "search or choose one already listed."
+                )
+            else:
+                pagination_instruction = (
+                    "Do not offer to expand the search. Ask the user to choose one "
+                    "of the listed emails."
+                )
+
+            return f"""
+                A Gmail reply-draft tool found multiple emails and did not create a draft.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {pagination_instruction}
+
+                Rules for answering:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - List every item from matching_emails in its existing order.
+                - For each email, show sender, subject, date, and a short description based only on its snippet.
+                - Ask which numbered email the user wants to reply to.
+                - Do not claim that a reply draft was created.
+                - Do not invent emails, senders, subjects, dates, or snippets.
+                - Do not expose technical identifiers.
+                - Keep the response concise and easy to scan.
+            """
+
+        return f"""
+            A Gmail reply-draft tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If created is true, confirm that the reply draft was created, not sent.
+            - If created is false, explain the reason naturally.
+            - Do not claim success unless created is true.
+            - Do not invent missing information.
+            - Do not expose technical identifiers.
             - Keep the response concise.
         """
     if tool_name == "gmail_read_specific_email":

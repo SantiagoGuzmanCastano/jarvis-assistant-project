@@ -124,8 +124,16 @@ def fetch_specific_sent_gmail_messages(access_token: str, max_results: int, quer
         fetched_email = fetch_metadata_FSD_sent_gmail_message(access_token=access_token, message_id=message["id"])
         sent_message_list.append(format_sent_gmail_message_metadata(fetched_email))
 
-    return ({
+    has_more = has_real_next_page(
+        access_token=access_token,
+        query=query,
+        label_id="SENT",
+        next_page_token=data.get("nextPageToken"),
+    )
+
+    return {
         "emails": sent_message_list,
-        "has_more": bool(data.get("nextPageToken")),
-    })
+        "has_more": has_more,
+        "returned_count": len(sent_message_list),
+    }
 

@@ -512,7 +512,17 @@ def fetch_specific_gmail_message_format_MORE(access_token:str, max_results: int,
             "snippet": fetched_email.get("snippet", ""),
         })
 
-    return message_list
+    has_more = has_real_next_page(
+        access_token=access_token,
+        query=query,
+        next_page_token=data.get("nextPageToken"),
+    )
+
+    return {
+        "emails": message_list,
+        "returned_count": len(message_list),
+        "has_more": has_more,
+    }
 
 
 # {

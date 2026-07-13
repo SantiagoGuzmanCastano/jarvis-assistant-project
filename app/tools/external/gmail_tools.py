@@ -92,12 +92,17 @@ def get_unread_emails_tool(arguments: dict, user_id: int, session: Session):
         print(message_list_output.get("estimated_total"))
         return {
             "emails": emails,
+            "returned_count": message_list_output.get(
+                "returned_count",
+                len(emails),
+            ),
             "has_more": message_list_output.get("has_more", False),
             "next_page_token": message_list_output.get("next_page_token"),
         }
 
     return {
         "emails": message_list_output,
+        "returned_count": len(message_list_output),
         "has_more": False,
         "next_page_token": None,
     }
@@ -333,8 +338,11 @@ def gmail_get_drafted_emails_tool(arguments: dict,user_id: int, session: Session
     max_results = arguments.get("max_results", 3)
     max_results = min(max(int(max_results), 1), 5)
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
-    draft_email = fetch_gmail_drafts(access_token=access_token,max_results=max_results)
-    return draft_email
+    return fetch_specific_gmail_drafts(
+        access_token=access_token,
+        max_results=max_results,
+        query="",
+    )
 
 
 def gmail_search_drafted_emails_tool(arguments: dict, user_id: int, session: Session, conversation_id: int | None = None):
@@ -467,9 +475,10 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         max_results = max(recent_draft_position, 1)
 
 
-        last_drafted_emails = gmail_get_drafted_emails_tool(user_id=user_id, session=session, arguments={
-            "max_results": max_results
-        })
+        last_drafted_emails = fetch_gmail_drafts(
+            access_token=access_token,
+            max_results=max_results,
+        )
 
         # la posición que pidio el usuario existe en esta lista?
         # recent_draft_index interno:
@@ -700,9 +709,10 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
 
             max_results = max(recent_draft_position, 1)
 
-            last_drafted_emails = gmail_get_drafted_emails_tool(user_id=user_id, session=session, arguments={
-                "max_results": max_results
-            })
+            last_drafted_emails = fetch_gmail_drafts(
+                access_token=access_token,
+                max_results=max_results,
+            )
             # la posición que pidio el usuario existe en esta lista?
             # recent_draft_index interno:
             # 0 = ultimo borrador
@@ -1083,20 +1093,48 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
     access_token = get_valid_google_access_token(user_id=user_id,session=session)
     reply_body = arguments.get("reply_body", "")
 
-    if not reply_body:
-        return ({
-            "created": False,
-            "reason": "missing_body",
-            "message": "Body is required for the new draft content, request it to the user",
-        })
-
     selection_type = arguments.get("selection_type")
 
+    if selection_type not in {"recent_email", "specific_email"}:
+        return {
+            "created": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid email selection type is required.",
+        }
+
     if selection_type == "recent_email":
+        if not reply_body:
+            return {
+                "created": False,
+                "reason": "missing_body",
+                "message": "Body is required for the new draft content, request it to the user",
+            }
+
         recent_email_position = arguments.get("recent_email_position", 1)
 
+        try:
+            recent_email_position = int(recent_email_position)
+        except (TypeError, ValueError):
+            return {
+                "created": False,
+                "reason": "invalid_recent_email_position",
+                "message": "Recent email position must be a positive integer.",
+            }
+
+        if recent_email_position < 1:
+            return {
+                "created": False,
+                "reason": "invalid_recent_email_position",
+                "message": "Recent email position must be at least 1.",
+            }
 
         max_results = recent_email_position
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
 
         emails_found = search_latest_gmail_messages_for_metadata(
                     access_token=access_token,
@@ -1134,9 +1172,15 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
 
         selected_result_position = arguments.get("selected_result_position")
         print("\nSelected result position mode:")
-        if selected_result_position:
-            selected_result_position = int(selected_result_position)
-            max_results = max(selected_result_position + 1, 1)
+        if selected_result_position is not None:
+            try:
+                selected_result_position = int(selected_result_position)
+            except (TypeError, ValueError):
+                return {
+                    "created": False,
+                    "reason": "invalid_selected_result_position",
+                    "message": "Selected email position must be a positive integer.",
+                }
 
             tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
 
@@ -1146,7 +1190,35 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                     "reason": "missing_tool_state",
                 }
 
+            if "emails_found" not in tool_payload:
+                return {
+                    "created": False,
+                    "reason": "invalid_reply_selection_state",
+                    "message": "No pending email selection was found for creating a reply draft.",
+                }
+
             matches = tool_payload["emails_found"]
+
+            if (
+                not isinstance(matches, list)
+                or selected_result_position < 1
+                or selected_result_position > len(matches)
+            ):
+                return {
+                    "created": False,
+                    "reason": "invalid_selected_result_position",
+                    "message": "Selected email position is out of range.",
+                }
+
+            reply_body = arguments.get("reply_body") or tool_payload.get("reply_body", "")
+
+            if not reply_body:
+                return {
+                    "created": False,
+                    "reason": "missing_body",
+                    "message": "No reply content was found for the selected email.",
+                }
+
             selected_match = matches[selected_result_position - 1]
             print("\nEmail selected:")
             print(selected_match)
@@ -1170,6 +1242,19 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                 "subject": selected_match["subject"],
             }
 
+        if not reply_body:
+            return {
+                "created": False,
+                "reason": "missing_body",
+                "message": "Body is required for the new draft content, request it to the user",
+            }
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
         max_results = arguments.get("max_results", 3)
         start_date = arguments.get("start_date", "")
         end_date = arguments.get("end_date", "")
@@ -1178,18 +1263,28 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
 
         query = build_gmail_query(search_scope="received",start_date=start_date, end_date=end_date, search_keywords=search_keywords, sender_hint=sender_hint)
 
-        emails_fetched = fetch_specific_gmail_message_format_MORE(access_token=access_token, max_results=max_results, query=query)
+        print("\nQuery:")
+        print(query)
+        email_results = fetch_specific_gmail_message_format_MORE(
+            access_token=access_token,
+            max_results=max_results,
+            query=query,
+        )
+        emails_fetched = email_results["emails"]
 
         print("\nEMAILS FOUND")
         print(emails_fetched)
 
 
         if len(emails_fetched) == 0:
-            return ({
-            "sent": False,
-            "reason": "no_matching_draft",
-            "message": "No matching draft was found."
-        })
+            return {
+                "created": False,
+                "reason": "no_matching_email",
+                "message": "No matching email was found.",
+                "matching_emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
 
         if len(emails_fetched) == 1:
             created_draft = create_draft_reply(
@@ -1224,9 +1319,11 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
 
             return({
                 "created": False,
-                "reason": "multiple_matching_drafts",
-                "message": "Multiple matching drafts found, please specify which draft you want to send",
-                "matching_drafts_found": emails_fetched
+                "reason": "multiple_matching_emails",
+                "message": "Multiple matching emails found, please specify which email you want to reply to.",
+                "matching_emails": emails_fetched,
+                "returned_count": email_results["returned_count"],
+                "has_more": email_results["has_more"],
             })
 
 
@@ -1247,6 +1344,9 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
             return {
                 "found": False,
                 "reason": "invalid_recent_email_position",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
             }
 
         latest_emails = fetch_full_latest_gmail_messages(
@@ -1258,11 +1358,21 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
             return {
                 "found": False,
                 "reason": "recent_email_position_out_of_range",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
             }
 
-        return format_gmail_email(
+        email = format_gmail_email(
             email_requested=latest_emails[recent_email_position-1]
         )
+
+        return {
+            "found": True,
+            "emails": [email],
+            "returned_count": 1,
+            "has_more": False,
+        }
 
     max_results = arguments.get("max_results", 1)
     max_results = min(max(int(max_results), 1), 2)
@@ -1277,7 +1387,12 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
     for email in latest_emails:
         emails_list.append(format_gmail_email(email_requested=email))
 
-    return emails_list
+    return {
+        "found": bool(emails_list),
+        "emails": emails_list,
+        "returned_count": len(emails_list),
+        "has_more": False,
+    }
 
 
 def format_gmail_email(email_requested: dict):
@@ -1407,33 +1522,52 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
                 "Ask the user which email they want to read first."
             ),
             "requested_email_count": requested_email_count,
-    }
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
 
     if selected_result_position:
         selected_result_position = int(selected_result_position)
 
         tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
 
-        if tool_payload is None:
+        if not isinstance(tool_payload, dict) or "emails" not in tool_payload:
             return {
                 "read": False,
                 "reason": "missing_tool_state",
                 "message": "No previous email selection was found.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
             }
 
-        if selected_result_position < 1 or selected_result_position > len(tool_payload):
+        emails_to_choose = tool_payload["emails"]
+
+        if (
+            selected_result_position < 1
+            or selected_result_position > len(emails_to_choose)
+        ):
             return {
                 "read": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected email position is out of range.",
-                "available_positions": len(tool_payload),
+                "available_positions": len(emails_to_choose),
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
             }
 
-        email_selected = tool_payload[selected_result_position - 1]
+        email_selected = emails_to_choose[selected_result_position - 1]
         formatted_email = format_gmail_email(email_requested=email_selected)
         delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
 
-        return formatted_email
+        return {
+            "read": True,
+            "emails": [formatted_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
 
     query = build_gmail_query(search_scope="received", start_date=start_date,end_date=end_date,search_keywords=search_keywords,sender_hint=sender_hint)
 
@@ -1447,7 +1581,10 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
             "read": False,
             "reason": "email_not_found",
             "message": "No email matched the provided query.",
-    }
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
 
     print("\nEmails Found")
     for index, email in enumerate(emails_found, start=1):
@@ -1468,18 +1605,31 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
     if len(emails_found) > 1:
         matching_email_summaries = format_gmail_email_candidates(emails_found)
         delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
-        create_tool_state(user_id=user_id,session=session,conversation_id=conversation_id, payload=matching_email_summaries)
+        create_tool_state(
+            user_id=user_id,
+            session=session,
+            conversation_id=conversation_id,
+            payload={"emails": emails_found},
+        )
 
         return {
             "read": False,
             "reason": "multiple_matching_emails",
             "message": "Multiple emails matched the query. Please specify which one you want to read.",
             "matching_emails": matching_email_summaries,
+            "returned_count": len(matching_email_summaries),
+            "has_more": False,
         }
 
     if len(emails_found) == 1:
+        formatted_email = format_gmail_email(email_requested=emails_found[0])
 
-        return (format_gmail_email(email_requested=emails_found[0]))
+        return {
+            "read": True,
+            "emails": [formatted_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
 
 # endregion
 
@@ -1518,10 +1668,7 @@ def gmail_search_sent_emails_tool(arguments: dict, user_id: int, session: Sessio
     print("\nEmails found:")
     print(len(emails_found["emails"]))
 
-    return ({
-        "emails":emails_found,
-        "has_more": emails_found["has_more"]
-        })
+    return emails_found
 # endregion
 
 #---------------EXTRAS-------------
