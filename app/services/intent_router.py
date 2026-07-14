@@ -89,7 +89,9 @@ Available tools:
 
 - gmail_create_email_draft: use when the user asks to create, prepare, write, compose, or draft a new email without sending it.
 
-- gmail_search_drafted_emails: use when the user asks to find, search, look for, read, check or inspect a specific Gmail draft/borrador.
+- gmail_search_drafted_emails: use when the user asks to find, search, look for, check, or inspect a specific Gmail draft/borrador using basic metadata.
+
+- gmail_read_specific_draft: use when the user explicitly asks to read, open, show, or summarize the complete content of a specific, latest, or penultimate Gmail draft.
 
 - gmail_update_email_draft: use when the user asks to modify an existing Gmail draft. This tool updates one draft but does not send it.
 
@@ -100,6 +102,12 @@ Available tools:
 - gmail_read_latest_email: use only when the user explicitly asks to read, open, show, or summarize the complete content of their latest or penultimate Gmail email.
 
 - gmail_read_specific_email: use when the user explicitly asks to read, open, show, or summarize the complete content of a specific received Gmail email.
+
+- gmail_move_email_to_trash: use when the user clearly asks to move one received Gmail email to Trash. This action is reversible in Gmail and does not permanently delete the email.
+
+- gmail_move_sent_email_to_trash: use when the user clearly asks to move one Gmail email that they sent to Trash. This action is reversible in Gmail and does not permanently delete the email.
+
+- gmail_delete_draft: use when the user clearly asks to permanently delete or discard one Gmail draft. This action cannot be undone.
 
 - gmail_create_reply_draft: use when the user asks to create, write, prepare, or draft a reply to an existing received Gmail email.
 
@@ -908,6 +916,451 @@ If selecting a previously found email, return:
 
 ------------------------------------------------------------------------------------------------
 
+For gmail_delete_draft:
+- Use it only when the user clearly asks to permanently delete, discard, remove, or throw away one Gmail draft/borrador.
+- This operation permanently deletes the draft; it does not move it to Gmail Trash and cannot be undone.
+- Do not use it for received emails. Use gmail_move_email_to_trash instead.
+- This tool can delete only one draft per request.
+- Never silently ignore additional requested drafts.
+- Do not generate or return a Gmail query. The backend builds the query.
+
+Recipient rules:
+- recipient_hint must always be a list.
+- Extract recipient_hint from the current recipient of the draft.
+- Preserve original spelling, capitalization, accents, and special characters.
+- If a recipient name contains accents, include accented and unaccented variants as separate items.
+- If the recipient is an email address, include only the exact email address.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or draft content details that identify the draft to delete.
+- Do not include recipient_hint words in search_keywords.
+- Preserve spelling and accents, and expand useful singular, plural, accented, and unaccented variants as separate list items.
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not include filler words such as "elimina", "borra", "descarta", "borrador", "correo", "email", "para", "sobre", "el", "la", "de", "un", or "una".
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive and end_date is exclusive.
+- For one requested day, set start_date to that day and end_date to the following day.
+- For a date range, always order the two requested endpoints chronologically, even if the user mentions them in reverse order.
+- Set start_date to the earlier day.
+- Set end_date to the day after the later day.
+- Convert today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both values to null.
+- Never provide only one date or set both dates to the same date.
+
+Selection and expansion rules:
+- For a specific-draft search, use selection_type: "specific_draft" and max_results: 5 unless the user requests a number from 1 to 15.
+- If the user asks to delete the latest draft, use selection_type: "recent_draft" and recent_draft_index: 1.
+- If the user asks to delete the penultimate draft, use selection_type: "recent_draft" and recent_draft_index: 2.
+- recent_draft_index is one-based. Do not use selected_result_index for a latest or penultimate draft.
+- If this tool showed multiple matching drafts and the user asks to expand, show more, search more, broaden the results, or continue, you MUST use gmail_delete_draft again. Never switch to gmail_search_drafted_emails.
+- For an expansion, set reuse_previous_search to true and max_results to 15. Do not include or reconstruct recipient_hint, search_keywords, start_date, or end_date; the backend reuses the exact previous criteria.
+- When the user selects a draft from a list previously shown by this tool, use selected_result_index. Positions start at 1.
+- Do not include recipient_hint, search_keywords, start_date, end_date, or max_results when selected_result_index is used.
+
+Before returning JSON, verify:
+- recipient_hint and search_keywords are lists.
+- start_date and end_date are both present or both null.
+- end_date is later than start_date when dates are provided.
+- max_results is between 1 and 15.
+
+If one specific draft should be permanently deleted, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_delete_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "max_results": 5,
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "recipient_hint": ["Hernán", "Hernan"],
+    "search_keywords": ["factura", "facturas"]
+  }
+}
+
+If multiple drafts should be deleted, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_delete_draft",
+  "arguments": {
+    "requested_draft_count": 2
+  }
+}
+
+If the latest or penultimate draft should be deleted, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_delete_draft",
+  "arguments": {
+    "selection_type": "recent_draft",
+    "requested_draft_count": 1,
+    "recent_draft_index": 2
+  }
+}
+
+If expanding a previous gmail_delete_draft search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_delete_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "reuse_previous_search": true,
+    "max_results": 15
+  }
+}
+
+If selecting a previously found draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_delete_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "selected_result_index": 1
+  }
+}
+
+------------------------------------------------------------------------------------------------
+
+For gmail_move_email_to_trash:
+- Use it only when the user clearly asks to move, delete, discard, or send one received Gmail email to Trash/Papelera.
+- This tool moves the email to Gmail Trash; it does not permanently delete it.
+- Do not use it for drafts. Use gmail_delete_draft when that tool is available.
+- This tool can move only one email per request.
+- Never silently ignore additional requested emails.
+- Do not generate or return a Gmail query. The backend builds the query.
+
+Sender rules:
+- sender_hint must always be a list.
+- Extract sender_hint when the user mentions a sender name, company, or email address.
+- Preserve original spelling, capitalization, accents, and special characters.
+- If a sender name contains accents, include accented and unaccented variants as separate items.
+- If sender_hint is an email address, include only the exact email address.
+- If no sender is mentioned, set sender_hint to an empty list.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or content details that identify the email to move.
+- Do not include sender_hint words in search_keywords.
+- Preserve spelling and accents, and expand useful singular, plural, accented, and unaccented variants as separate list items.
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not include filler words such as "mueve", "elimina", "borra", "papelera", "correo", "email", "de", "el", "la", "un", or "una".
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive and end_date is exclusive.
+- For one requested day, set start_date to that day and end_date to the following day.
+- For a date range, always order the two requested endpoints chronologically, even if the user mentions them in reverse order.
+- Set start_date to the earlier day.
+- Set end_date to the day after the later day.
+- Convert today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both values to null.
+- Never provide only one date or set both dates to the same date.
+
+Selection and expansion rules:
+- For a specific-email search, use selection_type: "specific_email" and max_results: 5 unless the user requests a number from 1 to 15.
+- If the user asks to move the latest email, use selection_type: "recent_email" and recent_email_position: 1.
+- If the user asks to move the penultimate email, use selection_type: "recent_email" and recent_email_position: 2.
+- recent_email_position is one-based. Do not use selected_result_position for a latest or penultimate email.
+- If this tool showed multiple matching emails and the user asks to expand, show more, search more, broaden the results, or continue, you MUST use gmail_move_email_to_trash again. Never switch to gmail_search_email_message.
+- For an expansion, set reuse_previous_search to true and max_results to 15. Do not include or reconstruct sender_hint, search_keywords, start_date, or end_date; the backend reuses the exact previous criteria.
+- When the user selects an email from a list previously shown by this tool, use selected_result_position. Positions start at 1.
+- Do not include sender_hint, search_keywords, start_date, end_date, or max_results when selected_result_position is used.
+
+Before returning JSON, verify:
+- sender_hint and search_keywords are lists.
+- start_date and end_date are both present or both null.
+- end_date is later than start_date when dates are provided.
+- max_results is between 1 and 15.
+
+If one specific email should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_email",
+    "requested_email_count": 1,
+    "max_results": 5,
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "sender_hint": ["Hernán", "Hernan"],
+    "search_keywords": ["factura", "facturas"]
+  }
+}
+
+If multiple emails should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_email_to_trash",
+  "arguments": {
+    "requested_email_count": 2
+  }
+}
+
+If the latest or penultimate email should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_email_to_trash",
+  "arguments": {
+    "selection_type": "recent_email",
+    "requested_email_count": 1,
+    "recent_email_position": 2
+  }
+}
+
+If expanding a previous gmail_move_email_to_trash search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_email",
+    "requested_email_count": 1,
+    "reuse_previous_search": true,
+    "max_results": 15
+  }
+}
+
+If selecting a previously found email, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_email",
+    "requested_email_count": 1,
+    "selected_result_position": 1
+  }
+}
+
+------------------------------------------------------------------------------------------------
+
+For gmail_move_sent_email_to_trash:
+- Use it only when the user clearly asks to move, delete, discard, or send one Gmail email they sent to Trash/Papelera.
+- This tool moves the sent email to Gmail Trash; it does not permanently delete it.
+- Do not use it for received emails. Use gmail_move_email_to_trash instead.
+- Do not use it for drafts. Use gmail_delete_draft instead.
+- This tool can move only one sent email per request.
+- Never silently ignore additional requested sent emails.
+- Do not generate or return a Gmail query. The backend builds the query.
+
+Recipient rules:
+- recipient_hint must always be a list.
+- Extract recipient_hint when the user mentions the recipient's name, company, or email address.
+- Preserve original spelling, capitalization, accents, and special characters.
+- If a recipient name contains accents, include accented and unaccented variants as separate items.
+- If the recipient is an email address, include only the exact email address.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or content details that identify the sent email.
+- Do not include recipient_hint words in search_keywords.
+- Preserve spelling and accents, and expand useful singular, plural, accented, and unaccented variants as separate list items.
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not include filler words such as "mueve", "elimina", "borra", "papelera", "correo", "email", "enviado", "de", "el", "la", "un", or "una".
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive and end_date is exclusive.
+- For one requested day, set start_date to that day and end_date to the following day.
+- For a date range, always order the two requested endpoints chronologically, even if the user mentions them in reverse order.
+- Set start_date to the earlier day.
+- Set end_date to the day after the later day.
+- Convert today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both values to null.
+- Never provide only one date or set both dates to the same date.
+
+Selection and expansion rules:
+- For a specific sent-email search, use selection_type: "specific_sent_email" and max_results: 5 unless the user requests a number from 1 to 15.
+- If the user asks to move the latest sent email, use selection_type: "recent_sent_email" and recent_sent_email_position: 1.
+- If the user asks to move the penultimate sent email, use selection_type: "recent_sent_email" and recent_sent_email_position: 2.
+- recent_sent_email_position is one-based. Do not use selected_result_position for a latest or penultimate sent email.
+- If this tool showed multiple matching sent emails and the user asks to expand, show more, search more, broaden the results, or continue, you MUST use gmail_move_sent_email_to_trash again. Never switch to gmail_search_sent_emails.
+- For an expansion, set reuse_previous_search to true and max_results to 15. Do not include or reconstruct recipient_hint, search_keywords, start_date, or end_date; the backend reuses the exact previous criteria.
+- When the user selects a sent email from a list previously shown by this tool, use selected_result_position. Positions start at 1.
+- Do not include recipient_hint, search_keywords, start_date, end_date, or max_results when selected_result_position is used.
+
+Before returning JSON, verify:
+- recipient_hint and search_keywords are lists.
+- start_date and end_date are both present or both null.
+- end_date is later than start_date when dates are provided.
+- max_results is between 1 and 15.
+
+If one specific sent email should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_sent_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_sent_email",
+    "requested_email_count": 1,
+    "max_results": 5,
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "recipient_hint": ["Hernan"],
+    "search_keywords": ["factura", "facturas"]
+  }
+}
+
+If multiple sent emails should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_sent_email_to_trash",
+  "arguments": {
+    "requested_email_count": 2
+  }
+}
+
+If the latest or penultimate sent email should be moved to Trash, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_sent_email_to_trash",
+  "arguments": {
+    "selection_type": "recent_sent_email",
+    "requested_email_count": 1,
+    "recent_sent_email_position": 2
+  }
+}
+
+If expanding a previous gmail_move_sent_email_to_trash search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_sent_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_sent_email",
+    "requested_email_count": 1,
+    "reuse_previous_search": true,
+    "max_results": 15
+  }
+}
+
+If selecting a previously found sent email, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_move_sent_email_to_trash",
+  "arguments": {
+    "selection_type": "specific_sent_email",
+    "requested_email_count": 1,
+    "selected_result_position": 1
+  }
+}
+
+------------------------------------------------------------------------------------------------
+
+For gmail_read_specific_draft:
+- Use it only when the user explicitly asks to read, open, show, or summarize the complete body of one specific Gmail draft.
+- Do not use it merely to search or list drafts. Use gmail_search_drafted_emails instead.
+- This tool can read only one complete draft per request.
+- Never silently ignore additional requested drafts.
+- Do not generate or return a Gmail query. The backend builds the query.
+
+Recipient rules:
+- recipient_hint must always be a list.
+- Extract recipient_hint when the user mentions the current recipient's name, company, or email address.
+- Preserve original spelling, capitalization, accents, and special characters.
+- If a recipient name contains accents, include accented and unaccented variants as separate items.
+- If the recipient is an email address, include only the exact email address.
+- If no recipient is mentioned, set recipient_hint to an empty list.
+
+Keyword rules:
+- Extract search_keywords only from topics, possible subject words, or draft content details mentioned by the user.
+- Do not include recipient_hint words in search_keywords.
+- Preserve spelling and accents, and expand useful singular, plural, accented, and unaccented variants as separate list items.
+- If no topic, subject, or content information is mentioned, set search_keywords to an empty list.
+- Do not include filler words such as "lee", "abre", "muestra", "borrador", "correo", "para", "sobre", "el", "la", "de", "un", or "una".
+
+Date rules:
+- Use the current date and the user's time zone provided above as the reference.
+- Return start_date and end_date using YYYY-MM-DD.
+- start_date is inclusive and end_date is exclusive.
+- For one requested day, set start_date to that day and end_date to the following day.
+- For a date range, always order the two requested endpoints chronologically, even if the user mentions them in reverse order.
+- Set start_date to the earlier day.
+- Set end_date to the day after the later day.
+- Convert today, yesterday, the day before yesterday, and N days ago using the current date provided above.
+- If no date is mentioned, set both values to null.
+- Never provide only one date or set both dates to the same date.
+
+Result and selection rules:
+- For a new search, set max_results to 5 unless the user explicitly requests a number from 1 to 15.
+- If this tool just showed multiple matching drafts and the user asks to expand, show more, search more, broaden the results, or continue, you MUST use gmail_read_specific_draft again. Never switch to gmail_search_drafted_emails.
+- For that expansion, set reuse_previous_search to true and max_results to 15. Do not include or reconstruct recipient_hint, search_keywords, start_date, or end_date; the backend will reuse the exact previous criteria.
+- When the user selects a previously listed draft, use selected_result_index. Positions start at 1.
+- Do not include recipient_hint, search_keywords, start_date, end_date, or max_results when selected_result_index is used.
+- For the latest draft, use selection_type: "recent_draft" and recent_draft_index: 1.
+- For the penultimate draft, use selection_type: "recent_draft" and recent_draft_index: 2.
+- recent_draft_index is one-based: 1 is the latest draft, 2 is the penultimate draft.
+- Do not use selected_result_index for latest, penultimate, or recent draft requests unless the user is selecting from a list that Jarvis previously showed.
+
+Before returning JSON, verify:
+- recipient_hint and search_keywords are lists.
+- start_date and end_date are both present or both null.
+- end_date is later than start_date when dates are provided.
+- max_results is between 1 and 15.
+
+If one specific draft is requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "max_results": 5,
+    "start_date": "2026-06-26",
+    "end_date": "2026-06-30",
+    "recipient_hint": ["Hernán", "Hernan"],
+    "search_keywords": ["prórroga", "prorroga", "contrato", "contratos"]
+  }
+}
+
+If multiple specific drafts are requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_draft",
+  "arguments": {
+    "requested_draft_count": 2
+  }
+}
+
+If the latest or penultimate draft is requested, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_draft",
+  "arguments": {
+    "selection_type": "recent_draft",
+    "requested_draft_count": 1,
+    "recent_draft_index": 2
+  }
+}
+
+If expanding the previous gmail_read_specific_draft search, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "reuse_previous_search": true,
+    "max_results": 15
+  }
+}
+
+If selecting a previously found draft, return:
+{
+  "needs_tool": true,
+  "tool_name": "gmail_read_specific_draft",
+  "arguments": {
+    "selection_type": "specific_draft",
+    "requested_draft_count": 1,
+    "selected_result_index": 1
+  }
+}
+
+------------------------------------------------------------------------------------------------
+
 For gmail_update_email_draft:
 - Use it only when the user clearly asks to modify an existing Gmail draft.
 - This tool can update only one draft per request.
@@ -1420,15 +1873,26 @@ Rules:
 - If the user asks to draft, write, prepare, or compose an email, use gmail_create_email_draft, not gmail_send_email_message.
 - If the user asks to send a brand new email, use gmail_send_email_message.
 - If the user asks to send an existing draft/borrador, use gmail_send_drafted_email.
-- If the user asks to find, view, inspect, read, or check a draft/borrador without sending it, use gmail_search_drafted_emails.
-- If the user asks to list, see, check, read, or summarize latest/recent Gmail drafts, use gmail_get_drafted_emails.
-- If the user asks for a specific draft/borrador, use gmail_search_drafted_emails unless they clearly ask to send it.
+- If the user asks to find, inspect, or check a draft/borrador without reading its complete body or sending it, use gmail_search_drafted_emails.
+- If the user asks to list, see, check, or summarize latest/recent Gmail drafts, use gmail_get_drafted_emails.
+- If the user explicitly asks to read the complete latest, last, or penultimate draft, use gmail_read_specific_draft with selection_type: "recent_draft".
+- If the user asks to read, open, show, or summarize the complete body of a specific draft/borrador, use gmail_read_specific_draft.
+- If the user asks for a specific draft/borrador, use gmail_search_drafted_emails unless they clearly ask to read its complete body or send it.
+- If gmail_read_specific_draft just showed multiple matching drafts and the user asks to expand, show more, search more, or continue, use gmail_read_specific_draft with reuse_previous_search: true. Never switch to gmail_search_drafted_emails.
 - If the user selects a draft from a recent listed result, use the recent conversation to recover the selected draft details and call gmail_send_drafted_email.
 - If the user says "first", "second", "third", "last", "that one", "it", "send it", "el primero", "el segundo", "el último", "ese", "envíalo", or similar after Jarvis showed a list, do not treat that as max_results.
 - If the latest user message uses references like "it", "that", "that one", "the same", "búscalo", "envíalo", "ese", "el anterior", recover the missing details from the recent conversation when possible.
 - If the missing details cannot be recovered safely, do not use the tool.
 - Do not send an email if required email fields are missing.
 - If the user asks whether they have new, unread, or pending emails, use get_unread_emails.
+- If the user clearly asks to move one received email to Trash/Papelera, use gmail_move_email_to_trash.
+- Treat requests to delete or discard a received email as move-to-Trash requests, never as permanent deletion.
+- If the user asks to move multiple received emails to Trash, use gmail_move_email_to_trash with requested_email_count greater than 1 so the backend can reject the unsafe batch action.
+- If the user clearly asks to move one sent email to Trash/Papelera, use gmail_move_sent_email_to_trash.
+- Treat requests to delete or discard a sent email as move-to-Trash requests, never as permanent deletion.
+- If the user asks to move multiple sent emails to Trash, use gmail_move_sent_email_to_trash with requested_email_count greater than 1 so the backend can reject the unsafe batch action.
+- If the user clearly asks to permanently delete or discard one draft/borrador, use gmail_delete_draft.
+- If the user asks to delete multiple drafts, use gmail_delete_draft with requested_draft_count greater than 1 so the backend can reject the unsafe batch action.
 - If the user explicitly says unread, use get_unread_emails, not get_latest_emails.
 - If the user asks to check or list recent/latest emails without saying unread, use get_latest_emails.
 - If the user explicitly asks to read, open, show, or summarize the complete content of the latest or penultimate email, use gmail_read_latest_email.
@@ -1478,7 +1942,7 @@ def parse_tool_intent_response(response_text: str) -> ToolIntent:
             arguments={}
         )
     
-    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email","gmail_update_email_draft", "gmail_create_reply_draft", "gmail_get_sent_emails", "gmail_search_sent_emails"]:
+    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email", "gmail_read_specific_draft", "gmail_move_email_to_trash", "gmail_move_sent_email_to_trash", "gmail_delete_draft", "gmail_update_email_draft", "gmail_create_reply_draft", "gmail_get_sent_emails", "gmail_search_sent_emails"]:
         raise ValueError("Unknown tool")
     
     return intent

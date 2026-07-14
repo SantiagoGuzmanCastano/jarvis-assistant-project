@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_read_latest_email_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
+from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_delete_draft_tool, gmail_move_email_to_trash_tool, gmail_move_sent_email_to_trash_tool, gmail_read_latest_email_tool, gmail_read_specific_draft_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
 from app.tools.registry import TOOLS
 
 
@@ -22,6 +22,18 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
         conversation_id=conversation_id)
     if tool_function == gmail_read_specific_email_tool:
         return gmail_read_specific_email_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
+    if tool_function == gmail_read_specific_draft_tool:
+        return gmail_read_specific_draft_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
+    if tool_function == gmail_move_email_to_trash_tool:
+        return gmail_move_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
+    if tool_function == gmail_move_sent_email_to_trash_tool:
+        return gmail_move_sent_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session,
+        conversation_id=conversation_id)
+    if tool_function == gmail_delete_draft_tool:
+        return gmail_delete_draft_tool(arguments=arguments, user_id=user_id, session=session,
         conversation_id=conversation_id)
     if tool_function == gmail_search_drafted_emails_tool:
         return gmail_search_drafted_emails_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
@@ -537,6 +549,297 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             - Treat tool_result as the only source of truth.
             - Do not invent missing information.
             - Do not expose message IDs.
+        """
+
+    if tool_name == "gmail_read_specific_draft":
+        reason = tool_result.get("reason")
+
+        if reason == "multiple_draft_read_not_supported":
+            return f"""
+                Tool result:
+                {tool_result}
+
+                Rules:
+                - Tell the user that only one complete draft can be read per request.
+                - Ask which requested draft they want to read first.
+                - Do not claim that drafts were searched or found.
+                - Do not invent or list draft metadata.
+            """
+
+        if reason == "multiple_matching_drafts":
+            returned_count = tool_result.get("returned_count", 0)
+            has_more = tool_result.get("has_more", False)
+
+            if has_more and returned_count < 15:
+                pagination_instruction = (
+                    f"Tell the user that only {returned_count} matching drafts are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 drafts or select one shown."
+                )
+            elif has_more:
+                pagination_instruction = (
+                    "Tell the user that 15 matching drafts are currently shown, which "
+                    "is the maximum display limit. More matching drafts are available, "
+                    "so do not claim these are all results. Ask them to select one shown "
+                    "or refine the search."
+                )
+            else:
+                pagination_instruction = (
+                    "No additional page of matching drafts is available. Ask the user "
+                    "to select one of the shown drafts."
+                )
+
+            return f"""
+                A Gmail draft-reading tool found multiple matching drafts and did not read one yet.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {pagination_instruction}
+
+                Rules:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - List every item from matching_drafts in its existing order.
+                - Preserve each item's exact position value.
+                - For each draft, show recipient, subject, date, and a short description based only on its snippet.
+                - Ask which numbered draft the user wants to read.
+                - Do not claim that any draft was read.
+                - Do not reveal any complete body before the user selects one.
+                - Do not invent information or expose draft IDs.
+            """
+
+        return f"""
+            Tool result:
+            {tool_result}
+
+            Rules:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If read is true, present the selected draft's recipient, subject, date, and complete body naturally.
+            - If read is false, explain the reason naturally.
+            - Do not claim success unless read is true.
+            - Do not invent missing information.
+            - Do not expose draft IDs or technical identifiers.
+        """
+
+    if tool_name == "gmail_move_email_to_trash":
+        reason = tool_result.get("reason")
+
+        if reason == "multiple_email_trash_not_supported":
+            return f"""
+                Tool result:
+                {tool_result}
+
+                Rules:
+                - Tell the user that Jarvis can move only one email to trash per request.
+                - Ask which email they want to move first.
+                - Do not claim that any email was moved.
+                - Do not invent or list email metadata.
+            """
+
+        if reason == "multiple_matching_emails":
+            returned_count = tool_result.get("returned_count", 0)
+            has_more = tool_result.get("has_more", False)
+
+            if has_more and returned_count < 15:
+                pagination_instruction = (
+                    f"Tell the user that only {returned_count} matching emails are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 emails or choose one shown."
+                )
+            elif has_more:
+                pagination_instruction = (
+                    "Tell the user that 15 matching emails are currently shown, which "
+                    "is the maximum display limit. More matching emails are available, "
+                    "so do not claim these are all results. Ask them to select one shown "
+                    "or refine the search."
+                )
+            else:
+                pagination_instruction = (
+                    "No additional page of matching emails is available. Ask the user "
+                    "to select one of the shown emails."
+                )
+
+            return f"""
+                A Gmail move-to-trash tool found multiple matching emails and did not move any email.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {pagination_instruction}
+
+                Rules:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - List every item from matching_emails in its existing order.
+                - Preserve each item's exact position value.
+                - For each email, show sender, subject, date, and a short description based only on its snippet.
+                - Ask which numbered email the user wants to move to trash.
+                - Do not claim that any email was moved.
+                - Do not invent information or expose technical identifiers.
+            """
+
+        return f"""
+            Tool result:
+            {tool_result}
+
+            Rules:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If trashed is true, confirm that the email was moved to Gmail Trash, not permanently deleted.
+            - If trashed is false, explain the reason naturally.
+            - Do not claim success unless trashed is true.
+            - Do not invent missing information.
+            - Do not expose message IDs or technical identifiers.
+        """
+
+    if tool_name == "gmail_move_sent_email_to_trash":
+        reason = tool_result.get("reason")
+
+        if reason == "multiple_sent_email_trash_not_supported":
+            return f"""
+                Tool result:
+                {tool_result}
+
+                Rules:
+                - Tell the user that Jarvis can move only one sent email to trash per request.
+                - Ask which sent email they want to move first.
+                - Do not claim that any email was moved.
+                - Do not invent or list email metadata.
+            """
+
+        if reason == "multiple_matching_sent_emails":
+            returned_count = tool_result.get("returned_count", 0)
+            has_more = tool_result.get("has_more", False)
+
+            if has_more and returned_count < 15:
+                pagination_instruction = (
+                    f"Tell the user that only {returned_count} matching sent emails are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 emails or choose one shown."
+                )
+            elif has_more:
+                pagination_instruction = (
+                    "Tell the user that 15 matching sent emails are currently shown, which "
+                    "is the maximum display limit. More matching emails are available, "
+                    "so do not claim these are all results. Ask them to select one shown "
+                    "or refine the search."
+                )
+            else:
+                pagination_instruction = (
+                    "No additional page of matching sent emails is available. Ask the user "
+                    "to select one of the shown emails."
+                )
+
+            return f"""
+                A Gmail move-sent-email-to-trash tool found multiple matching sent emails and did not move any email.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {pagination_instruction}
+
+                Rules:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - List every item from matching_emails in its existing order.
+                - Preserve each item's exact position value.
+                - For each email, show recipient, subject, date, and a short description based only on its snippet.
+                - Make it clear that these are emails sent by the user.
+                - Ask which numbered email the user wants to move to trash.
+                - Do not claim that any email was moved.
+                - Do not invent information or expose technical identifiers.
+            """
+
+        return f"""
+            Tool result:
+            {tool_result}
+
+            Rules:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If trashed is true, confirm that the sent email was moved to Gmail Trash, not permanently deleted.
+            - Make it clear that this was an email sent by the user.
+            - If trashed is false, explain the reason naturally.
+            - Do not claim success unless trashed is true.
+            - Do not invent missing information.
+            - Do not expose message IDs or technical identifiers.
+        """
+
+    if tool_name == "gmail_delete_draft":
+        reason = tool_result.get("reason")
+
+        if reason == "multiple_draft_delete_not_supported":
+            return f"""
+                Tool result:
+                {tool_result}
+
+                Rules:
+                - Tell the user that Jarvis can permanently delete only one draft per request.
+                - Ask which draft they want to delete first.
+                - Do not claim that any draft was deleted.
+                - Do not invent or list draft metadata.
+            """
+
+        if reason == "multiple_matching_drafts":
+            returned_count = tool_result.get("returned_count", 0)
+            has_more = tool_result.get("has_more", False)
+
+            if has_more and returned_count < 15:
+                pagination_instruction = (
+                    f"Tell the user that only {returned_count} matching drafts are "
+                    "currently shown and that more are available. Ask whether they "
+                    "want to expand the search up to 15 drafts or choose one shown."
+                )
+            elif has_more:
+                pagination_instruction = (
+                    "Tell the user that 15 matching drafts are currently shown, which "
+                    "is the maximum display limit. More matching drafts are available, "
+                    "so do not claim these are all results. Ask them to select one shown "
+                    "or refine the search."
+                )
+            else:
+                pagination_instruction = (
+                    "No additional page of matching drafts is available. Ask the user "
+                    "to select one of the shown drafts."
+                )
+
+            return f"""
+                A Gmail draft-delete tool found multiple matching drafts and did not delete any draft.
+
+                Tool result:
+                {tool_result}
+
+                Mandatory pagination instruction:
+                {pagination_instruction}
+
+                Rules:
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - List every item from matching_drafts in its existing order.
+                - Preserve each item's exact position value.
+                - For each draft, show recipient, subject, date, and a short description based only on its snippet.
+                - Ask which numbered draft the user wants to permanently delete.
+                - Do not claim that any draft was deleted.
+                - Do not invent information or expose technical identifiers.
+            """
+
+        return f"""
+            Tool result:
+            {tool_result}
+
+            Rules:
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - If deleted is true, clearly confirm that the draft was permanently deleted and cannot be restored from Trash.
+            - If deleted is false, explain the reason naturally.
+            - Do not claim success unless deleted is true.
+            - Do not invent missing information.
+            - Do not expose draft IDs or technical identifiers.
         """
 
     return f"""

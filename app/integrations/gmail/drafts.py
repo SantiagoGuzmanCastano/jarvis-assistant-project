@@ -420,6 +420,19 @@ def send_gmail_draft(draft_id:str, access_token: str):
     response.raise_for_status()
     return response.json()
 
+
+def delete_gmail_draft(draft_id: str, access_token: str) -> dict:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    response = requests.delete(
+        f"{GOOGLE_DRAFTS_URL}/{draft_id}",
+        headers=headers,
+    )
+    response.raise_for_status()
+    return {}
+
 # --------------SEARCH DRAFT---------------
 
 

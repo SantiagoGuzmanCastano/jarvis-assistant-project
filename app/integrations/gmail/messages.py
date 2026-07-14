@@ -139,6 +139,19 @@ GOOGLE_MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
 LATEST_EMAILS_QUERY = "category:primary"
 
 
+def move_gmail_message_to_trash(access_token: str, message_id: str) -> dict:
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    response = requests.post(
+        f"{GOOGLE_MESSAGES_URL}/{message_id}/trash",
+        headers=headers,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
 def fetch_metadata_FSD_gmail_message(message_id: str, access_token: str):
 
     headers = {

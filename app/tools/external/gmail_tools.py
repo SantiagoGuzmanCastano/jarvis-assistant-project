@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from email.utils import parseaddr, parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-from app.integrations.gmail.drafts import create_draft_reply, create_gmail_draft, fetch_gmail_draft_full, fetch_gmail_drafts, fetch_specific_gmail_drafts, fetch_specific_gmail_drafts_full, format_gmail_draft_full, send_gmail_draft, update_gmail_draft
-from app.integrations.gmail.messages import build_gmail_search_query, fetch_full_specific_gmail_messages, fetch_latest_gmail_messages, fetch_specific_gmail_message_format_FSD, fetch_unread_gmail_messages, fetch_full_latest_gmail_messages, has_real_next_page, score_gmail_message_candidates, score_gmail_message_candidates_MORE, score_gmail_message_candidates_by_range, score_sent_gmail_message_candidates_by_range, search_latest_gmail_messages_for_metadata, fetch_specific_gmail_message_format_MORE
+from app.integrations.gmail.drafts import create_draft_reply, create_gmail_draft, delete_gmail_draft, fetch_gmail_draft_full, fetch_gmail_drafts, fetch_specific_gmail_drafts, fetch_specific_gmail_drafts_full, format_gmail_draft_candidate, format_gmail_draft_full, send_gmail_draft, update_gmail_draft
+from app.integrations.gmail.messages import build_gmail_search_query, fetch_full_specific_gmail_messages, fetch_latest_gmail_messages, fetch_specific_gmail_message_format_FSD, fetch_unread_gmail_messages, fetch_full_latest_gmail_messages, has_real_next_page, move_gmail_message_to_trash, score_gmail_message_candidates, score_gmail_message_candidates_MORE, score_gmail_message_candidates_by_range, score_sent_gmail_message_candidates_by_range, search_latest_gmail_messages_for_metadata, fetch_specific_gmail_message_format_MORE
 from app.integrations.gmail.search import build_gmail_query
 from app.integrations.gmail.sent import fetch_sent_gmail_messages, fetch_specific_sent_gmail_messages
 from app.repositories.conversation import create_tool_state, delete_tool_state, get_tool_payload
@@ -1630,6 +1630,1254 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
             "returned_count": 1,
             "has_more": False,
         }
+
+
+def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: int, conversation_id: int,
+):
+    requested_draft_count = arguments.get("requested_draft_count", 1)
+    selection_type = arguments.get("selection_type", "specific_draft")
+    selected_result_index = arguments.get("selected_result_index")
+    reuse_previous_search = arguments.get("reuse_previous_search", False)
+
+    try:
+        requested_draft_count = int(requested_draft_count)
+    except (TypeError, ValueError):
+        return {
+            "read": False,
+            "reason": "invalid_requested_draft_count",
+            "message": "Requested draft count must be a valid number.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if requested_draft_count != 1:
+        return {
+            "read": False,
+            "reason": "multiple_draft_read_not_supported",
+            "message": "Only one complete draft can be read per request.",
+            "requested_draft_count": requested_draft_count,
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if selection_type not in {"specific_draft", "recent_draft"}:
+        return {
+            "read": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid draft selection type is required.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if selection_type == "recent_draft":
+        recent_draft_index = arguments.get("recent_draft_index")
+
+        try:
+            recent_draft_position = int(recent_draft_index)
+        except (TypeError, ValueError):
+            return {
+                "read": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Recent draft index must be a valid number.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if recent_draft_position < 1:
+            return {
+                "read": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Recent draft index must be at least 1.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        access_token = get_valid_google_access_token(user_id=user_id, session=session)
+        recent_drafts = fetch_gmail_drafts(
+            access_token=access_token,
+            max_results=recent_draft_position,
+        )
+
+        if recent_draft_position > len(recent_drafts):
+            return {
+                "read": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Requested recent draft index is out of range.",
+                "available_drafts": len(recent_drafts),
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_draft = format_gmail_draft_full(
+            draft=fetch_gmail_draft_full(
+                draft_id=recent_drafts[recent_draft_position - 1]["id"],
+                access_token=access_token,
+            ),
+            position=recent_draft_position,
+        )
+
+        return {
+            "read": True,
+            "drafts": [selected_draft],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if selected_result_index is not None:
+        try:
+            selected_result_index = int(selected_result_index)
+        except (TypeError, ValueError):
+            return {
+                "read": False,
+                "reason": "invalid_selected_result_index",
+                "message": "Selected draft index must be a valid number.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        if (
+            not isinstance(tool_payload, dict)
+            or tool_payload.get("state_type") != "gmail_read_specific_draft_selection"
+            or not isinstance(tool_payload.get("drafts"), list)
+        ):
+            return {
+                "read": False,
+                "reason": "missing_tool_state",
+                "message": "No previous draft selection was found.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        drafts_to_choose = tool_payload["drafts"]
+
+        if (selected_result_index < 1 or selected_result_index > len(drafts_to_choose)):
+            return {
+                "read": False,
+                "reason": "invalid_selected_result_index",
+                "message": "Selected draft index is out of range.",
+                "available_positions": len(drafts_to_choose),
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_draft = drafts_to_choose[selected_result_index - 1]
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        return {
+            "read": True,
+            "drafts": [selected_draft],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if reuse_previous_search:
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        search_arguments = (
+            tool_payload.get("search_arguments")
+            if isinstance(tool_payload, dict)
+            and tool_payload.get("state_type") == "gmail_read_specific_draft_selection"
+            else None
+        )
+
+        if not isinstance(search_arguments, dict):
+            return {
+                "read": False,
+                "reason": "missing_previous_draft_search",
+                "message": "No previous draft search is available to expand.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        max_results = 15
+        start_date = search_arguments.get("start_date")
+        end_date = search_arguments.get("end_date")
+        recipient_hint = search_arguments.get("recipient_hint", [])
+        search_keywords = search_arguments.get("search_keywords", [])
+    else:
+        max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
+        start_date = arguments.get("start_date")
+        end_date = arguments.get("end_date")
+        recipient_hint = arguments.get("recipient_hint", [])
+        search_keywords = arguments.get("search_keywords", [])
+
+    if not recipient_hint and not search_keywords and not start_date and not end_date:
+        return {
+            "read": False,
+            "reason": "missing_draft_search_fields",
+            "message": "Missing information required to identify the draft.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    query = build_gmail_query(
+        search_scope="draft",
+        start_date=start_date,
+        end_date=end_date,
+        search_keywords=search_keywords,
+        recipient_hint=recipient_hint,
+    )
+
+    print('\nQuery:')
+    print(query)
+
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    access_token = get_valid_google_access_token(user_id=user_id, session=session)
+    draft_results = fetch_specific_gmail_drafts_full(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+    drafts_found = draft_results["drafts"]
+
+    if not drafts_found:
+        return {
+            "read": False,
+            "reason": "draft_not_found",
+            "message": "No draft matched the provided query.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if len(drafts_found) == 1:
+        return {
+            "read": True,
+            "drafts": [drafts_found[0]],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    matching_drafts = [
+        {
+            "position": draft["position"],
+            "to": draft["to"],
+            "subject": draft["subject"],
+            "date": draft["date"],
+            "snippet": draft["snippet"],
+        }
+        for draft in drafts_found
+    ]
+
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        payload={
+            "state_type": "gmail_read_specific_draft_selection",
+            "drafts": drafts_found,
+            "search_arguments": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "recipient_hint": recipient_hint,
+                "search_keywords": search_keywords,
+            },
+        },
+        session=session,
+    )
+
+    return {
+        "read": False,
+        "reason": "multiple_matching_drafts",
+        "message": "Multiple drafts matched the query. Please specify which one you want to read.",
+        "matching_drafts": matching_drafts,
+        "returned_count": draft_results["returned_count"],
+        "has_more": draft_results["has_more"],
+    }
+# endregion
+
+# --------------DELETE---------------
+# region DELETE
+
+def gmail_move_email_to_trash_tool(
+    arguments: dict,
+    session: Session,
+    user_id: int,
+    conversation_id: int,
+):
+    requested_email_count = arguments.get("requested_email_count", 1)
+    selection_type = arguments.get("selection_type", "specific_email")
+    selected_result_position = arguments.get("selected_result_position")
+    reuse_previous_search = arguments.get("reuse_previous_search", False)
+
+    try:
+        requested_email_count = int(requested_email_count)
+    except (TypeError, ValueError):
+        return {
+            "trashed": False,
+            "reason": "invalid_requested_email_count",
+            "message": "Requested email count must be a valid number.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if requested_email_count != 1:
+        return {
+            "trashed": False,
+            "reason": "multiple_email_trash_not_supported",
+            "message": "Only one email can be moved to trash per request.",
+            "requested_email_count": requested_email_count,
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if selection_type not in {"specific_email", "recent_email"}:
+        return {
+            "trashed": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid email selection type is required.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    access_token = get_valid_google_access_token(user_id=user_id, session=session)
+
+    if selection_type == "recent_email":
+        recent_email_position = arguments.get("recent_email_position")
+
+        try:
+            recent_email_position = int(recent_email_position)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_email_position",
+                "message": "Recent email position must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if recent_email_position < 1:
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_email_position",
+                "message": "Recent email position must be at least 1.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        recent_email_results = fetch_latest_gmail_messages(
+            access_token=access_token,
+            max_results=recent_email_position,
+        )
+        recent_emails = recent_email_results["emails"]
+
+        if recent_email_position > len(recent_emails):
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_email_position",
+                "message": "Requested recent email position is out of range.",
+                "available_emails": len(recent_emails),
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_email = recent_emails[recent_email_position - 1]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["id"],
+        )
+        formatted_email = format_gmail_message_metadata([selected_email])[0]
+
+        return {
+            "trashed": True,
+            "emails": [formatted_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if selected_result_position is not None:
+        try:
+            selected_result_position = int(selected_result_position)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_selected_result_position",
+                "message": "Selected email position must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        if (
+            not isinstance(tool_payload, dict)
+            or tool_payload.get("state_type") != "gmail_move_email_to_trash_selection"
+            or not isinstance(tool_payload.get("emails"), list)
+        ):
+            return {
+                "trashed": False,
+                "reason": "missing_tool_state",
+                "message": "No previous email selection was found.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        emails_to_choose = tool_payload["emails"]
+
+        if (
+            selected_result_position < 1
+            or selected_result_position > len(emails_to_choose)
+        ):
+            return {
+                "trashed": False,
+                "reason": "invalid_selected_result_position",
+                "message": "Selected email position is out of range.",
+                "available_positions": len(emails_to_choose),
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_email = emails_to_choose[selected_result_position - 1]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["message_id"],
+        )
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        return {
+            "trashed": True,
+            "emails": [
+                {
+                    "from": selected_email["sender"],
+                    "subject": selected_email["subject"],
+                    "date": selected_email["date"],
+                    "snippet": selected_email["snippet"],
+                }
+            ],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if reuse_previous_search:
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        search_arguments = (
+            tool_payload.get("search_arguments")
+            if isinstance(tool_payload, dict)
+            and tool_payload.get("state_type") == "gmail_move_email_to_trash_selection"
+            else None
+        )
+
+        if not isinstance(search_arguments, dict):
+            return {
+                "trashed": False,
+                "reason": "missing_previous_email_search",
+                "message": "No previous email search is available to expand.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        max_results = 15
+        start_date = search_arguments.get("start_date")
+        end_date = search_arguments.get("end_date")
+        sender_hint = search_arguments.get("sender_hint", [])
+        search_keywords = search_arguments.get("search_keywords", [])
+    else:
+        try:
+            max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_max_results",
+                "message": "max_results must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        start_date = arguments.get("start_date")
+        end_date = arguments.get("end_date")
+        sender_hint = arguments.get("sender_hint", [])
+        search_keywords = arguments.get("search_keywords", [])
+
+    if not sender_hint and not search_keywords and not start_date and not end_date:
+        return {
+            "trashed": False,
+            "reason": "missing_email_search_fields",
+            "message": "Missing information required to identify the email.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    query = build_gmail_query(
+        search_scope="received",
+        start_date=start_date,
+        end_date=end_date,
+        search_keywords=search_keywords,
+        sender_hint=sender_hint,
+    )
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    email_results = fetch_specific_gmail_message_format_FSD(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+    emails_found = email_results["emails"]
+
+    if not emails_found:
+        return {
+            "trashed": False,
+            "reason": "email_not_found",
+            "message": "No email matched the provided query.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if len(emails_found) == 1:
+        selected_email = emails_found[0]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["message_id"],
+        )
+
+        return {
+            "trashed": True,
+            "emails": [
+                {
+                    "from": selected_email["sender"],
+                    "subject": selected_email["subject"],
+                    "date": selected_email["date"],
+                    "snippet": selected_email["snippet"],
+                }
+            ],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    matching_emails = [
+        {
+            "position": position,
+            "from": email["sender"],
+            "subject": email["subject"],
+            "date": email["date"],
+            "snippet": email["snippet"],
+        }
+        for position, email in enumerate(emails_found, start=1)
+    ]
+
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        payload={
+            "state_type": "gmail_move_email_to_trash_selection",
+            "emails": emails_found,
+            "search_arguments": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "sender_hint": sender_hint,
+                "search_keywords": search_keywords,
+            },
+        },
+    )
+
+    return {
+        "trashed": False,
+        "reason": "multiple_matching_emails",
+        "message": "Multiple emails matched the query. Please specify which one to move to trash.",
+        "matching_emails": matching_emails,
+        "returned_count": email_results["returned_count"],
+        "has_more": email_results["has_more"],
+    }
+
+
+def gmail_move_sent_email_to_trash_tool(
+    arguments: dict,
+    session: Session,
+    user_id: int,
+    conversation_id: int,
+):
+    requested_email_count = arguments.get("requested_email_count", 1)
+    selection_type = arguments.get("selection_type", "specific_sent_email")
+    selected_result_position = arguments.get("selected_result_position")
+    reuse_previous_search = arguments.get("reuse_previous_search", False)
+
+    try:
+        requested_email_count = int(requested_email_count)
+    except (TypeError, ValueError):
+        return {
+            "trashed": False,
+            "reason": "invalid_requested_email_count",
+            "message": "Requested sent email count must be a valid number.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if requested_email_count != 1:
+        return {
+            "trashed": False,
+            "reason": "multiple_sent_email_trash_not_supported",
+            "message": "Only one sent email can be moved to trash per request.",
+            "requested_email_count": requested_email_count,
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if selection_type not in {"specific_sent_email", "recent_sent_email"}:
+        return {
+            "trashed": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid sent email selection type is required.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    access_token = get_valid_google_access_token(user_id=user_id, session=session)
+
+    if selection_type == "recent_sent_email":
+        recent_sent_email_position = arguments.get("recent_sent_email_position")
+
+        try:
+            recent_sent_email_position = int(recent_sent_email_position)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_sent_email_position",
+                "message": "Recent sent email position must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if recent_sent_email_position < 1:
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_sent_email_position",
+                "message": "Recent sent email position must be at least 1.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
+        recent_results = fetch_sent_gmail_messages(
+            access_token=access_token,
+            max_results=recent_sent_email_position,
+        )
+        recent_emails = recent_results["emails"]
+
+        if recent_sent_email_position > len(recent_emails):
+            return {
+                "trashed": False,
+                "reason": "invalid_recent_sent_email_position",
+                "message": "Requested recent sent email position is out of range.",
+                "available_emails": len(recent_emails),
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_email = recent_emails[recent_sent_email_position - 1]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["message_id"],
+        )
+
+        return {
+            "trashed": True,
+            "emails": [selected_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if selected_result_position is not None:
+        try:
+            selected_result_position = int(selected_result_position)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_selected_result_position",
+                "message": "Selected sent email position must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        if (
+            not isinstance(tool_payload, dict)
+            or tool_payload.get("state_type") != "gmail_move_sent_email_to_trash_selection"
+            or not isinstance(tool_payload.get("emails"), list)
+        ):
+            return {
+                "trashed": False,
+                "reason": "missing_tool_state",
+                "message": "No previous sent email selection was found.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        emails_to_choose = tool_payload["emails"]
+
+        if selected_result_position < 1 or selected_result_position > len(emails_to_choose):
+            return {
+                "trashed": False,
+                "reason": "invalid_selected_result_position",
+                "message": "Selected sent email position is out of range.",
+                "available_positions": len(emails_to_choose),
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_email = emails_to_choose[selected_result_position - 1]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["message_id"],
+        )
+        delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
+
+        return {
+            "trashed": True,
+            "emails": [selected_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if reuse_previous_search:
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        search_arguments = (
+            tool_payload.get("search_arguments")
+            if isinstance(tool_payload, dict)
+            and tool_payload.get("state_type") == "gmail_move_sent_email_to_trash_selection"
+            else None
+        )
+
+        if not isinstance(search_arguments, dict):
+            return {
+                "trashed": False,
+                "reason": "missing_previous_sent_email_search",
+                "message": "No previous sent email search is available to expand.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        max_results = 15
+        start_date = search_arguments.get("start_date")
+        end_date = search_arguments.get("end_date")
+        recipient_hint = search_arguments.get("recipient_hint", [])
+        search_keywords = search_arguments.get("search_keywords", [])
+    else:
+        try:
+            max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
+        except (TypeError, ValueError):
+            return {
+                "trashed": False,
+                "reason": "invalid_max_results",
+                "message": "max_results must be a valid number.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        start_date = arguments.get("start_date")
+        end_date = arguments.get("end_date")
+        recipient_hint = arguments.get("recipient_hint", [])
+        search_keywords = arguments.get("search_keywords", [])
+
+    if not recipient_hint and not search_keywords and not start_date and not end_date:
+        return {
+            "trashed": False,
+            "reason": "missing_sent_email_search_fields",
+            "message": "Missing information required to identify the sent email.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    try:
+        query = build_gmail_query(
+            search_scope="sent",
+            start_date=start_date,
+            end_date=end_date,
+            search_keywords=search_keywords,
+            recipient_hint=recipient_hint,
+            sender_hint=None,
+        )
+        print("\nQuery:")
+        print(query)
+    except (TypeError, ValueError):
+        return {
+            "trashed": False,
+            "reason": "invalid_date_range",
+            "message": "The sent email date range is invalid.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
+    email_results = fetch_specific_sent_gmail_messages(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+    emails_found = email_results["emails"]
+
+    if not emails_found:
+        return {
+            "trashed": False,
+            "reason": "sent_email_not_found",
+            "message": "No sent email matched the provided query.",
+            "emails": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if len(emails_found) == 1:
+        selected_email = emails_found[0]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=selected_email["message_id"],
+        )
+
+        return {
+            "trashed": True,
+            "emails": [selected_email],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    matching_emails = [
+        {
+            "position": position,
+            "recipient": email["recipient"],
+            "subject": email["subject"],
+            "date": email["date"],
+            "snippet": email["snippet"],
+        }
+        for position, email in enumerate(emails_found, start=1)
+    ]
+
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        payload={
+            "state_type": "gmail_move_sent_email_to_trash_selection",
+            "emails": emails_found,
+            "search_arguments": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "recipient_hint": recipient_hint,
+                "search_keywords": search_keywords,
+            },
+        },
+    )
+
+    return {
+        "trashed": False,
+        "reason": "multiple_matching_sent_emails",
+        "message": "Multiple sent emails matched the query. Please specify which one to move to trash.",
+        "matching_emails": matching_emails,
+        "returned_count": email_results["returned_count"],
+        "has_more": email_results["has_more"],
+    }
+
+
+def gmail_delete_draft_tool(
+    arguments: dict,
+    session: Session,
+    user_id: int,
+    conversation_id: int,
+):
+    requested_draft_count = arguments.get("requested_draft_count", 1)
+    selection_type = arguments.get("selection_type", "specific_draft")
+    selected_result_index = arguments.get("selected_result_index")
+    reuse_previous_search = arguments.get("reuse_previous_search", False)
+
+    try:
+        requested_draft_count = int(requested_draft_count)
+    except (TypeError, ValueError):
+        return {
+            "deleted": False,
+            "reason": "invalid_requested_draft_count",
+            "message": "Requested draft count must be a valid number.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if requested_draft_count != 1:
+        return {
+            "deleted": False,
+            "reason": "multiple_draft_delete_not_supported",
+            "message": "Only one draft can be permanently deleted per request.",
+            "requested_draft_count": requested_draft_count,
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if selection_type not in {"specific_draft", "recent_draft"}:
+        return {
+            "deleted": False,
+            "reason": "invalid_selection_type",
+            "message": "A valid draft selection type is required.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    access_token = get_valid_google_access_token(user_id=user_id, session=session)
+
+    if selection_type == "recent_draft":
+        recent_draft_index = arguments.get("recent_draft_index")
+
+        try:
+            recent_draft_position = int(recent_draft_index)
+        except (TypeError, ValueError):
+            return {
+                "deleted": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Recent draft index must be a valid number.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if recent_draft_position < 1:
+            return {
+                "deleted": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Recent draft index must be at least 1.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        recent_drafts = fetch_gmail_drafts(
+            access_token=access_token,
+            max_results=recent_draft_position,
+        )
+
+        if recent_draft_position > len(recent_drafts):
+            return {
+                "deleted": False,
+                "reason": "invalid_recent_draft_index",
+                "message": "Requested recent draft index is out of range.",
+                "available_drafts": len(recent_drafts),
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_draft = recent_drafts[recent_draft_position - 1]
+        delete_gmail_draft(
+            draft_id=selected_draft["id"],
+            access_token=access_token,
+        )
+        formatted_draft = format_gmail_draft_candidate(
+            draft=selected_draft,
+            position=recent_draft_position,
+        )
+
+        return {
+            "deleted": True,
+            "drafts": [formatted_draft],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if selected_result_index is not None:
+        try:
+            selected_result_index = int(selected_result_index)
+        except (TypeError, ValueError):
+            return {
+                "deleted": False,
+                "reason": "invalid_selected_result_index",
+                "message": "Selected draft index must be a valid number.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        if (
+            not isinstance(tool_payload, dict)
+            or tool_payload.get("state_type") != "gmail_delete_draft_selection"
+            or not isinstance(tool_payload.get("drafts"), list)
+        ):
+            return {
+                "deleted": False,
+                "reason": "missing_tool_state",
+                "message": "No previous draft selection was found.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        drafts_to_choose = tool_payload["drafts"]
+
+        if (
+            selected_result_index < 1
+            or selected_result_index > len(drafts_to_choose)
+        ):
+            return {
+                "deleted": False,
+                "reason": "invalid_selected_result_index",
+                "message": "Selected draft index is out of range.",
+                "available_positions": len(drafts_to_choose),
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        selected_draft = drafts_to_choose[selected_result_index - 1]
+        delete_gmail_draft(
+            draft_id=selected_draft["draft_id"],
+            access_token=access_token,
+        )
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        return {
+            "deleted": True,
+            "drafts": [selected_draft],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    if reuse_previous_search:
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        search_arguments = (
+            tool_payload.get("search_arguments")
+            if isinstance(tool_payload, dict)
+            and tool_payload.get("state_type") == "gmail_delete_draft_selection"
+            else None
+        )
+
+        if not isinstance(search_arguments, dict):
+            return {
+                "deleted": False,
+                "reason": "missing_previous_draft_search",
+                "message": "No previous draft search is available to expand.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        max_results = 15
+        start_date = search_arguments.get("start_date")
+        end_date = search_arguments.get("end_date")
+        recipient_hint = search_arguments.get("recipient_hint", [])
+        search_keywords = search_arguments.get("search_keywords", [])
+    else:
+        try:
+            max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
+        except (TypeError, ValueError):
+            return {
+                "deleted": False,
+                "reason": "invalid_max_results",
+                "message": "max_results must be a valid number.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        start_date = arguments.get("start_date")
+        end_date = arguments.get("end_date")
+        recipient_hint = arguments.get("recipient_hint", [])
+        search_keywords = arguments.get("search_keywords", [])
+
+    if not recipient_hint and not search_keywords and not start_date and not end_date:
+        return {
+            "deleted": False,
+            "reason": "missing_draft_search_fields",
+            "message": "Missing information required to identify the draft.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    try:
+        query = build_gmail_query(
+            search_scope="draft",
+            start_date=start_date,
+            end_date=end_date,
+            search_keywords=search_keywords,
+            recipient_hint=recipient_hint,
+        )
+    except (TypeError, ValueError):
+        return {
+            "deleted": False,
+            "reason": "invalid_date_range",
+            "message": "start_date and end_date must use YYYY-MM-DD format.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    draft_results = fetch_specific_gmail_drafts(
+        access_token=access_token,
+        max_results=max_results,
+        query=query,
+    )
+    drafts_found = draft_results["drafts"]
+
+    if not drafts_found:
+        return {
+            "deleted": False,
+            "reason": "draft_not_found",
+            "message": "No draft matched the provided query.",
+            "drafts": [],
+            "returned_count": 0,
+            "has_more": False,
+        }
+
+    if len(drafts_found) == 1:
+        selected_draft = drafts_found[0]
+        delete_gmail_draft(
+            draft_id=selected_draft["draft_id"],
+            access_token=access_token,
+        )
+
+        return {
+            "deleted": True,
+            "drafts": [selected_draft],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
+    delete_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+    )
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        payload={
+            "state_type": "gmail_delete_draft_selection",
+            "drafts": drafts_found,
+            "search_arguments": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "recipient_hint": recipient_hint,
+                "search_keywords": search_keywords,
+            },
+        },
+    )
+
+    return {
+        "deleted": False,
+        "reason": "multiple_matching_drafts",
+        "message": "Multiple drafts matched the query. Please specify which one to permanently delete.",
+        "matching_drafts": drafts_found,
+        "returned_count": draft_results["returned_count"],
+        "has_more": draft_results["has_more"],
+    }
 
 # endregion
 
