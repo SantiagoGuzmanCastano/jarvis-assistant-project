@@ -1,4 +1,3 @@
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +12,6 @@ from app.core.exception_handlers import (
 )
 
 #Voy a tomar todos los endpoints de este archivo
-from app.db.init_db import create_db_tables
 from app.routers.health import router as health_router
 from app.routers.auth import router as auth_router
 from app.routers.conversation import router as conversation_router
@@ -25,16 +23,15 @@ from app.routers.external_auth import router as external_auth_router
 
 
 
-#lifespan es la logica de inicio y de cierre de la app
-#cuando arranca la app -> crear tablas si no existen
-#cuando se apaga la app -> no hacemos nada por ahora
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    create_db_tables()
-    yield
+# #lifespan es la logica de inicio y de cierre de la app
+# #cuando arranca la app -> crear tablas si no existen
+# #cuando se apaga la app -> no hacemos nada por ahora
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     create_db_tables()
+#     yield
     
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
-
+app = FastAPI(title=settings.app_name)
 #middleware es el codigo que se ejecuta alrededor de cada solicitud HTTP, antes de que llegue a un router y antes de que vuelva la respuesta
 app.add_middleware(
     CORSMiddleware,

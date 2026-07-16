@@ -1,10 +1,15 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException,status
 from sqlalchemy import select, delete, insert
 from sqlalchemy.orm import Session
+from app.core.config import settings
+
 
 from app.models.conversation import Conversation
 from app.models.generic_tool_state import ConversationToolState
 from app.models.message import Message
+
 
 def create_conversation(user_id: int, title: str, session: Session):
     new_conversation = Conversation(
@@ -90,11 +95,21 @@ def delete_conversation_messages(conversation_id: int, session: Session):
 
 def create_tool_state(payload: dict | list, user_id: int, session: Session, conversation_id: int):
     
+    existing_tool_state = get_tool_state(user_id=user_id,session=session, conversation_id=conversation_id)
+
+    if existing_tool_state is not None:
+        session.delete(existing_tool_state)
+        session.flush()
+
+    now = datetime.now(timezone.utc)
+
     new_tool_state = ConversationToolState(
         user_id=user_id,
         conversation_id= conversation_id,
-        payload_json=payload
-    )
+        payload_json=payload,
+        created_at=now,
+        expires_at=now + timedelta(minutes=settings.tool_state_expire_minutes),
+        )
 
     session.add(new_tool_state)
     session.commit()
@@ -103,8 +118,17 @@ def create_tool_state(payload: dict | list, user_id: int, session: Session, conv
     return new_tool_state
 
 
-def get_tool_payload(user_id: int, session: Session, conversation_id: int):
-    query = select(ConversationToolState.payload_json).where(
+# def get_tool_payload(user_id: int, session: Session, conversation_id: int):
+#     query = select(ConversationToolState.payload_json).where(
+#         ConversationToolState.user_id == user_id,
+#         ConversationToolState.conversation_id == conversation_id,
+#     )
+
+#     return session.scalars(query).first()
+
+
+def get_tool_state(user_id: int, session: Session, conversation_id: int):
+    query = select(ConversationToolState).where(
         ConversationToolState.user_id == user_id,
         ConversationToolState.conversation_id == conversation_id,
     )
@@ -118,3 +142,21 @@ def delete_tool_state(user_id: int, conversation_id: int,session: Session):
     )
     session.execute(query)
     session.commit()
+
+
+def get_tool_payload(user_id: int, session: Session, conversation_id: int):
+    tool_state = get_tool_state(user_id=user_id,session=session, conversation_id=conversation_id)
+
+    now = datetime.now(timezone.utc)
+
+    if tool_state is None:
+        return None
+    
+    if now >= tool_state.expires_at:
+        delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
+        return None
+
+    return tool_state.payload_json
+
+
+

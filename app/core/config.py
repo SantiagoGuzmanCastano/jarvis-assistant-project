@@ -36,6 +36,8 @@ class Settings(BaseSettings):
 
     google_request_timeout_seconds: float = 15.0
 
+    tool_state_expire_minutes: int = 15
+
     #python hace el mapeo automaticamente por nombre
     #detecta que en .env hay un JWT_SECRET_KEY y lo asigna
     #al jwt_secret_key que esta definido arribita, lo mismo con gemini_api_key
