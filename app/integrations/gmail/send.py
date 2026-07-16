@@ -2,8 +2,7 @@
 import base64
 from email.message import EmailMessage
 
-import requests
-
+from app.integrations.gmail.client import request_gmail
 
 # --------------SEND---------------
 
@@ -28,6 +27,10 @@ def gmail_send_email_message(access_token: str, recipient_email: str, subject: s
         "raw": encoded_message,
     }
 
-    response = requests.post(GOOGLE_SENDEMAIL_URL,headers=headers, json=payload)
-    response.raise_for_status()
+    response = request_gmail(
+        method="POST",
+        url=GOOGLE_SENDEMAIL_URL,
+        headers=headers,
+        json=payload,
+    )
     return response.json()

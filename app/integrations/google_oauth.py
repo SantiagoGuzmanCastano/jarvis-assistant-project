@@ -4,7 +4,7 @@ from app.core.config import settings
 
 import requests
 
-from app.core.config import settings
+from app.core.errors import AppError
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 
@@ -96,10 +96,12 @@ def exchange_code_for_tokens(code: str) -> dict:
         "redirect_uri": settings.google_redirect_uri,
     }
 
-    response = requests.post(GOOGLE_TOKEN_URL, data=data)
-    response.raise_for_status()
-
-    return response.json()
+    return _request_google_oauth(
+        method="POST",
+        url=GOOGLE_TOKEN_URL,
+        data=data,
+        headers=None,
+    )
     #DEVUELVE ALGO ASI:
     #{
     #    "access_token": "...",
@@ -118,10 +120,12 @@ def refresh_google_access_token(refresh_token: str) -> dict:
         "grant_type": "refresh_token",
     }
 
-    response = requests.post(GOOGLE_TOKEN_URL, data=data)
-    response.raise_for_status()
-
-    return response.json()
+    return _request_google_oauth(
+        method="POST",
+        url=GOOGLE_TOKEN_URL,
+        data=data,
+        headers=None,
+    )
 
 
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
@@ -132,12 +136,84 @@ def get_google_user_info(access_token: str) -> dict:
         "Authorization": f"Bearer {access_token}"
     }
 
-    response = requests.get(GOOGLE_USERINFO_URL, headers=headers)
-    response.raise_for_status()
+    return _request_google_oauth(
+        method="GET",
+        url=GOOGLE_USERINFO_URL,
+        headers=headers,
+    )
 
-    return response.json()
-    # {
-    #   "id": "...",
-    #   "email": "usuario@gmail.com",
-    #   "verified_email": true
-    # }
+
+def _request_google_oauth(method: str, url: str, data: dict | None = None, headers: dict | None = None):
+
+    try:
+        response = requests.request(
+        method=method,
+        url=url,
+        data=data,
+        headers=headers,
+        timeout=settings.google_request_timeout_seconds,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    except requests.Timeout as error:
+        raise AppError(
+            code="external_provider_unavailable",
+            message="Google is temporarily unavailable.",
+            status_code=503,
+        ) from error
+    
+    except requests.HTTPError as error:
+        provider_status = (
+            error.response.status_code
+            if error.response is not None
+            else 502
+        )
+
+        if provider_status == 401:
+            raise AppError(
+                code="external_provider_authentication_failed",
+                message="Google authorization is invalid or expired.",
+                status_code=401,
+            ) from error
+
+        if provider_status == 403:
+            raise AppError(
+                code="external_provider_forbidden",
+                message="Google denied access to this resource.",
+                status_code=403,
+            ) from error
+
+        if provider_status == 404:
+            raise AppError(
+                code="external_provider_not_found",
+                message="The requested Google resource was not found.",
+                status_code=404,
+            ) from error
+
+        if provider_status == 429:
+            raise AppError(
+                code="external_provider_rate_limited",
+                message="Google is temporarily rate limiting requests.",
+                status_code=429,
+            ) from error
+
+        if provider_status >= 500:
+            raise AppError(
+                code="external_provider_unavailable",
+                message="Google is temporarily unavailable.",
+                status_code=503,
+            ) from error
+
+        raise AppError(
+            code="external_provider_error",
+            message="Google could not process the request.",
+            status_code=502,
+        ) from error
+
+    except requests.RequestException as error:
+        raise AppError(
+            code="external_provider_unavailable",
+            message="Google is temporarily unavailable.",
+            status_code=503,
+        ) from error

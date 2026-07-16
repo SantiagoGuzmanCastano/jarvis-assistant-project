@@ -7,8 +7,7 @@ from email.message import EmailMessage
 import unicodedata
 from zoneinfo import ZoneInfo
 
-import requests
-
+from app.integrations.gmail.client import request_gmail
 
 GOOGLE_CREATEDRAFT_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
 
@@ -34,8 +33,12 @@ def create_gmail_draft(access_token:str, body:str, subject:str, recipient_email:
         }
     }
 
-    response = requests.post(GOOGLE_CREATEDRAFT_URL,headers=headers, json=payload)
-    response.raise_for_status()
+    response = request_gmail(
+        method="POST",
+        url=GOOGLE_CREATEDRAFT_URL,
+        headers=headers,
+        json=payload,
+    )
     return response.json()
 
 
@@ -65,8 +68,12 @@ def fetch_gmail_drafts_ids(
     if page_token:
         params["pageToken"] = page_token
 
-    response = requests.get(GOOGLE_DRAFTS_URL, headers=headers, params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_DRAFTS_URL,
+        headers=headers,
+        params=params,
+    )
 
     return response.json()
 
@@ -96,8 +103,12 @@ def fetch_gmail_draft_metadata(draft_id: str, access_token: str):
         "metadataHeaders": ["To","From", "Subject", "Date"],
     }
 
-    response = requests.get(f"{GOOGLE_DRAFTS_URL}/{draft_id}", headers=headers, params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_DRAFTS_URL}/{draft_id}",
+        headers=headers,
+        params=params,
+    )
     return response.json()
 
 
@@ -110,12 +121,12 @@ def fetch_gmail_draft_full(draft_id: str, access_token: str):
         "format": "full",
     }
 
-    response = requests.get(
-        f"{GOOGLE_DRAFTS_URL}/{draft_id}",
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_DRAFTS_URL}/{draft_id}",
         headers=headers,
         params=params,
     )
-    response.raise_for_status()
     return response.json()
 
 
@@ -413,11 +424,12 @@ def send_gmail_draft(draft_id:str, access_token: str):
         "id":draft_id
     }
 
-    response = requests.post(
-    GOOGLE_SEND_DRAFT_URL,
-    headers=headers,
-    json=payload)
-    response.raise_for_status()
+    response = request_gmail(
+        method="POST",
+        url=GOOGLE_SEND_DRAFT_URL,
+        headers=headers,
+        json=payload,
+    )
     return response.json()
 
 
@@ -426,11 +438,11 @@ def delete_gmail_draft(draft_id: str, access_token: str) -> dict:
         "Authorization": f"Bearer {access_token}",
     }
 
-    response = requests.delete(
-        f"{GOOGLE_DRAFTS_URL}/{draft_id}",
+    request_gmail(
+        method="DELETE",
+        url=f"{GOOGLE_DRAFTS_URL}/{draft_id}",
         headers=headers,
     )
-    response.raise_for_status()
     return {}
 
 # --------------SEARCH DRAFT---------------
@@ -478,8 +490,12 @@ def update_gmail_draft(access_token: str, body: str, subject: str, recipient_ema
         }
     }
 
-    response = requests.put(f"{GOOGLE_UPDATEDRAFTS_URL}/{draft_id}",headers=headers,json=payload)
-    response.raise_for_status()
+    response = request_gmail(
+        method="PUT",
+        url=f"{GOOGLE_UPDATEDRAFTS_URL}/{draft_id}",
+        headers=headers,
+        json=payload,
+    )
     return response.json()
 
 
@@ -511,6 +527,10 @@ def create_draft_reply(access_token:str, thread_id: str, original_message_id: st
         }
     }
 
-    response = requests.post(f"{GOOGLE_CREATEDRAFTREPLY_URL}",headers=headers,json=payload)
-    response.raise_for_status()
+    response = request_gmail(
+        method="POST",
+        url=GOOGLE_CREATEDRAFTREPLY_URL,
+        headers=headers,
+        json=payload,
+    )
     return response.json()

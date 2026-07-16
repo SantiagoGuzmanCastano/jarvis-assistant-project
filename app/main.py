@@ -1,7 +1,16 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from app.core.config import settings
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.errors import AppError
+
+from app.core.exception_handlers import (
+    app_error_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
 
 #Voy a tomar todos los endpoints de este archivo
 from app.db.init_db import create_db_tables
@@ -25,6 +34,27 @@ async def lifespan(app: FastAPI):
     yield
     
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+#middleware es el codigo que se ejecuta alrededor de cada solicitud HTTP, antes de que llegue a un router y antes de que vuelva la respuesta
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+app.add_exception_handler(
+    RequestValidationError,
+    validation_exception_handler,
+)
+app.add_exception_handler(
+    HTTPException,
+    http_exception_handler,
+)
+
+app.add_exception_handler(AppError, app_error_handler)
+
 
 #Voy a tomar todos los endpoints de este archivo
 #Y los voy a agregar a la app principal

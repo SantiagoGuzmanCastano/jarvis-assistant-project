@@ -37,5 +37,5 @@ def login_user(user_info: UserLogin, session: Session):
         )
     
 
-    token = create_access_token(id=user_exists.id)
+    token = create_access_token(user_id=user_exists.id)
     return {"access_token": token, "token_type": "bearer"}

@@ -2,8 +2,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import requests
-
+from app.integrations.gmail.client import request_gmail
 from app.integrations.gmail.messages import has_real_next_page
 
 GOOGLE_EMAILID_URL = (
@@ -22,8 +21,12 @@ def fetch_sent_gmail_messages_ids(access_token: str, max_results: int,):
         "labelIds": "SENT",
     }
 
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
 
     return response.json()
 
@@ -38,8 +41,12 @@ def fetch_metadata_FSD_sent_gmail_message(access_token: str, message_id: str):
         "metadataHeaders": ["To", "Subject", "Date"],
     }
 
-    response = requests.get(f"{GOOGLE_EMAILID_URL}/{message_id}",headers=headers, params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_EMAILID_URL}/{message_id}",
+        headers=headers,
+        params=params,
+    )
     return response.json()
 
 
@@ -108,8 +115,12 @@ def fetch_specific_sent_gmail_messages_ids(access_token: str, max_results: int,q
         "labelIds": "SENT",
     }
 
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
 
     return response.json()
 

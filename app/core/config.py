@@ -34,10 +34,14 @@ class Settings(BaseSettings):
     google_client_secret: str
     google_redirect_uri: str
 
+    google_request_timeout_seconds: float = 15.0
+
     #python hace el mapeo automaticamente por nombre
     #detecta que en .env hay un JWT_SECRET_KEY y lo asigna
     #al jwt_secret_key que esta definido arribita, lo mismo con gemini_api_key
     model_config = SettingsConfigDict(env_file=".env")
+
+    cors_allowed_origins: list[str] = []
 
 
 settings = Settings()

@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 from google import genai
 from google.genai import errors, types
 from app.core.config import settings
-
+from app.core.errors import AppError
 
 def generate_gemini_response(messages,system_prompt):
     client = genai.Client(api_key=settings.gemini_api_key)
@@ -16,17 +16,19 @@ def generate_gemini_response(messages,system_prompt):
             ),
 )
 
-    except errors.ServerError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Gemini is temporarily unavailable. Try again later.",
-        )
+    except errors.ServerError as error:
+        raise AppError(
+            code="external_provider_unavailable",
+            message="Gemini is temporarily unavailable.",
+            status_code=503,
+        ) from error
     
     except errors.ClientError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
+        raise AppError(
+            code="external_provider_error",
+            message="Gemini could not process the request.",
+            status_code=502,
+        ) from error
 
     return response.text
 
@@ -43,16 +45,18 @@ def generate_gemini_intent_response(conversation_content: str,system_intent_prom
             ),
 )
 
-    except errors.ServerError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Gemini is temporarily unavailable. Try again later.",
-        )
+    except errors.ServerError as error:
+        raise AppError(
+            code="external_provider_unavailable",
+            message="Gemini is temporarily unavailable.",
+            status_code=503,
+        ) from error
     
     except errors.ClientError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
+        raise AppError(
+            code="external_provider_error",
+            message="Gemini could not process the request.",
+            status_code=502,
+        ) from error
 
     return response.text

@@ -4,12 +4,8 @@ from datetime import date, datetime, time, timedelta
 from email.utils import parseaddr, parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-import requests
-
+from app.integrations.gmail.client import request_gmail
 from app.integrations.gmail.drafts import normalize_text
-
-#---------------FETCH IDS---------------
-# region fetch ids
 
 def build_gmail_search_query(sender_hint: str, search_keywords: list[str], date_hint: str | None,) -> str:
     query_parts = []
@@ -30,6 +26,9 @@ def build_gmail_search_query(sender_hint: str, search_keywords: list[str], date_
 
     return " ".join(query_parts)
 
+#---------------FETCH IDS---------------
+# region fetch ids
+
 
 def fetch_unread_gmail_messages_ids(access_token: str, max_results: int, query: str):
 
@@ -45,8 +44,12 @@ def fetch_unread_gmail_messages_ids(access_token: str, max_results: int, query: 
         "maxResults": max_results,
     }
 
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
 
     return response.json()
 
@@ -78,9 +81,12 @@ def fetch_latest_gmail_messages_ids(access_token: str, max_results: int):
     }
 
 
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
-
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
 
     return response.json()
 
@@ -104,12 +110,16 @@ def fetch_specific_gmail_messages_id(access_token: str, max_results: int, query:
     #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
     #is:unread significa: solo correos no leídos.
 
-    response = requests.get(GOOGLE_EMAILID_URL, headers=headers,params=params)
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
+        headers=headers,
+        params=params,
+    )
     # print("\nQUERY:", repr(query))
     # print("URL:", response.url)
     # print("RESPONSE:", response.json())
 
-    response.raise_for_status()
     return response.json()
 
 # {
@@ -144,11 +154,11 @@ def move_gmail_message_to_trash(access_token: str, message_id: str) -> dict:
         "Authorization": f"Bearer {access_token}",
     }
 
-    response = requests.post(
-        f"{GOOGLE_MESSAGES_URL}/{message_id}/trash",
+    response = request_gmail(
+        method="POST",
+        url=f"{GOOGLE_MESSAGES_URL}/{message_id}/trash",
         headers=headers,
     )
-    response.raise_for_status()
     return response.json()
 
 
@@ -163,10 +173,12 @@ def fetch_metadata_FSD_gmail_message(message_id: str, access_token: str):
         "metadataHeaders": ["From", "Subject", "Date"],
     }
 
-    response = requests.get(
-        f"{GOOGLE_MESSAGES_URL}/{message_id}", headers=headers,params=params)
-    
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_MESSAGES_URL}/{message_id}",
+        headers=headers,
+        params=params,
+    )
     return response.json()
 
     # {
@@ -342,13 +354,13 @@ def fetch_full_latest_gmail_messages(access_token: str, max_results: int):
     for message in message_page["emails"]:
         message_id = message["id"]
 
-        response = requests.get(
-            f"{GOOGLE_MESSAGES_URL}/{message_id}",
+        response = request_gmail(
+            method="GET",
+            url=f"{GOOGLE_MESSAGES_URL}/{message_id}",
             headers=headers,
             params=params,
         )
 
-        response.raise_for_status()
         latest_emails.append(response.json())
 
     return latest_emails
@@ -365,13 +377,12 @@ def fetch_full_specific_gmail_messages_metadata(access_token: str, message_id: i
     #q significa query de búsqueda, igual que cuando escribes en la barra de búsqueda de Gmail.
     #is:unread significa: solo correos no leídos.
 
-    response = requests.get(
-            f"{GOOGLE_MESSAGES_URL}/{message_id}",
-            headers=headers,
-            params=params,
-        )
-
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_MESSAGES_URL}/{message_id}",
+        headers=headers,
+        params=params,
+    )
     return response.json()
 
 
@@ -413,8 +424,12 @@ def fetch_metadata_MORE_gmail_message(access_token: str, message_id: int):
         ],
     }
 
-    response = requests.get(f"{GOOGLE_MESSAGES_URL}/{message_id}", headers=headers, params=params)
-    response.raise_for_status()
+    response = request_gmail(
+        method="GET",
+        url=f"{GOOGLE_MESSAGES_URL}/{message_id}",
+        headers=headers,
+        params=params,
+    )
     return response.json()
 
 
@@ -859,12 +874,12 @@ def has_real_next_page(
     if label_id:
         params["labelIds"] = label_id
 
-    response = requests.get(
-        GOOGLE_EMAILID_URL,
+    response = request_gmail(
+        method="GET",
+        url=GOOGLE_EMAILID_URL,
         headers=headers,
         params=params,
     )
-    response.raise_for_status()
 
     next_page = response.json()
 

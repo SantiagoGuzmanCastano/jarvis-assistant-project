@@ -24,29 +24,43 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(id: int):
+def create_access_token(user_id: int) -> str:
+    issued_at = datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(
+        minutes=settings.access_token_expire_minutes
+    )
 
-    expires_at= datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    payload = {
+        "sub": str(user_id),
+        "iat": issued_at,
+        "exp": expires_at,
+        "type": "access",
+    }
 
-    payload = {'sub': str(id)}
+    return jwt.encode(
+        payload,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_alrogithm,
+    )
 
-    access_token = jwt.encode(payload, settings.jwt_secret_key, settings.jwt_alrogithm)
 
-    return access_token
-
-
-def decode_token(token: str):
-
+def decode_token(token: str) -> int | None:
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, settings.jwt_alrogithm)
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_alrogithm],
+        )
 
-        return payload['sub']
-    
-    #error del token, token invalido
-    except jwt.PyJWTError:
-        return None
-    
-    #el token se leyo pero el userid no era un numero valido
-    #caso raro, nunca sucederia, por seguridad
-    except ValueError:
+        if payload.get("type") != "access":
+            return None
+
+        subject = payload.get("sub")
+
+        if subject is None:
+            return None
+
+        return int(subject)
+
+    except (jwt.PyJWTError, TypeError, ValueError):
         return None
