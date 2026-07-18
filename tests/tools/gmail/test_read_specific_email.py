@@ -180,6 +180,26 @@ def test_selected_position_without_state_returns_error(get_payload_mock: Mock, d
     delete_state_mock.assert_not_called()
 
 
+def test_multiple_requested_results_returns_unsupported_error() -> None:
+    result = gmail_read_specific_email_tool(
+        arguments={"requested_result_count": 2},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result == {
+        "read": False,
+        "reason": "multiple_email_read_not_supported",
+        "message": "Only one complete email can be read per request. "
+        "Ask the user which email they want to read first.",
+        "requested_result_count": 2,
+        "emails": [],
+        "returned_count": 0,
+        "has_more": False,
+    }
+
+
 
 @patch("app.tools.external.gmail_tools.delete_tool_state")
 @patch("app.tools.external.gmail_tools.get_tool_payload")

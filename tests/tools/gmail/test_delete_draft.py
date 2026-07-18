@@ -25,7 +25,7 @@ def test_selected_draft_is_permanently_deleted_and_state_is_cleared(
     }
 
     result = gmail_delete_draft_tool(
-        arguments={"selected_result_index": 2},
+        arguments={"selected_result_position": 2},
         session=session,
         user_id=7,
         conversation_id=11,
@@ -50,7 +50,7 @@ def test_selected_draft_is_permanently_deleted_and_state_is_cleared(
 
 def test_multiple_draft_delete_request_is_rejected() -> None:
     result = gmail_delete_draft_tool(
-        arguments={"requested_draft_count": 2},
+        arguments={"requested_result_count": 2},
         session=Mock(),
         user_id=7,
         conversation_id=11,
@@ -58,6 +58,32 @@ def test_multiple_draft_delete_request_is_rejected() -> None:
 
     assert result["deleted"] is False
     assert result["reason"] == "multiple_draft_delete_not_supported"
+
+
+@patch("app.tools.external.gmail_tools.fetch_gmail_drafts")
+@patch("app.tools.external.gmail_tools.delete_tool_state")
+@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+def test_recent_result_position_uses_draft_flow(
+    access_token_mock: Mock,
+    delete_state_mock: Mock,
+    fetch_drafts_mock: Mock,
+) -> None:
+    access_token_mock.return_value = "access-token"
+    fetch_drafts_mock.return_value = []
+
+    result = gmail_delete_draft_tool(
+        arguments={"recent_result_position": 1},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["reason"] == "invalid_recent_result_position"
+    fetch_drafts_mock.assert_called_once_with(
+        access_token="access-token",
+        max_results=1,
+    )
+    delete_state_mock.assert_called_once()
 
 
 @patch("app.tools.external.gmail_tools.create_tool_state")

@@ -34,7 +34,7 @@ def test_recent_position_returns_the_requested_email(
     access_token_mock.return_value = "access-token"
 
     result = gmail_read_latest_email_tool(
-        arguments={"recent_email_position": 2},
+        arguments={"recent_result_position": 2},
         session=session,
         user_id=7,
     )

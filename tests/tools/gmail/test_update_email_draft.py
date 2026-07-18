@@ -29,7 +29,7 @@ def test_active_draft_update_preserves_unspecified_fields(
         user_id=7,
         session=session,
         arguments={
-            "selection_type": "active_draft",
+            "selection_source": "active",
             "new_subject": "Factura enero corregida",
         },
         conversation_id=11,
@@ -78,7 +78,7 @@ def test_multiple_draft_update_search_saves_selection_state(
         user_id=7,
         session=session,
         arguments={
-            "selection_type": "specific_draft",
+            "selection_source": "search",
             "recipient_hint": ["Lina"],
             "new_subject": "Factura corregida",
         },

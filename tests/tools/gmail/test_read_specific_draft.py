@@ -151,7 +151,7 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
     }
 
     result = gmail_read_specific_draft_tool(
-        arguments={"selected_result_index": 2},
+        arguments={"selected_result_position": 2},
         session=session,
         user_id=7,
         conversation_id=11,
@@ -185,7 +185,7 @@ def test_selected_position_without_state_returns_error(
     get_payload_mock.return_value = None
 
     result = gmail_read_specific_draft_tool(
-        arguments={"selected_result_index": 2},
+        arguments={"selected_result_position": 2},
         session=session,
         user_id=7,
         conversation_id=11,
@@ -205,6 +205,25 @@ def test_selected_position_without_state_returns_error(
         session=session,
     )
     delete_state_mock.assert_not_called()
+
+
+def test_multiple_requested_results_returns_unsupported_error() -> None:
+    result = gmail_read_specific_draft_tool(
+        arguments={"requested_result_count": 2},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result == {
+        "read": False,
+        "reason": "multiple_draft_read_not_supported",
+        "message": "Only one complete draft can be read per request.",
+        "requested_result_count": 2,
+        "drafts": [],
+        "returned_count": 0,
+        "has_more": False,
+    }
 
 
 @patch("app.tools.external.gmail_tools.delete_tool_state")
@@ -240,7 +259,7 @@ def test_selected_position_out_of_range_returns_error(
     }
 
     result = gmail_read_specific_draft_tool(
-        arguments={"selected_result_index": 3},
+        arguments={"selected_result_position": 3},
         session=session,
         user_id=7,
         conversation_id=11,
@@ -248,8 +267,8 @@ def test_selected_position_out_of_range_returns_error(
 
     assert result == {
         "read": False,
-        "reason": "invalid_selected_result_index",
-        "message": "Selected draft index is out of range.",
+        "reason": "invalid_selected_result_position",
+        "message": "Selected draft position is out of range.",
         "available_positions": 2,
         "drafts": [],
         "returned_count": 0,

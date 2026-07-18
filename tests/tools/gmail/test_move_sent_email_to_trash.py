@@ -56,7 +56,7 @@ def test_selected_position_moves_exactly_one_sent_email_to_trash(
 
 def test_multiple_sent_email_trash_request_is_rejected() -> None:
     result = gmail_move_sent_email_to_trash_tool(
-        arguments={"requested_email_count": 2},
+        arguments={"requested_result_count": 2},
         session=Mock(),
         user_id=7,
         conversation_id=11,
@@ -64,3 +64,29 @@ def test_multiple_sent_email_trash_request_is_rejected() -> None:
 
     assert result["trashed"] is False
     assert result["reason"] == "multiple_sent_email_trash_not_supported"
+
+
+@patch("app.tools.external.gmail_tools.fetch_sent_gmail_messages")
+@patch("app.tools.external.gmail_tools.delete_tool_state")
+@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+def test_recent_result_position_uses_sent_email_flow(
+    access_token_mock: Mock,
+    delete_state_mock: Mock,
+    fetch_sent_mock: Mock,
+) -> None:
+    access_token_mock.return_value = "access-token"
+    fetch_sent_mock.return_value = {"emails": []}
+
+    result = gmail_move_sent_email_to_trash_tool(
+        arguments={"recent_result_position": 1},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["reason"] == "invalid_recent_result_position"
+    fetch_sent_mock.assert_called_once_with(
+        access_token="access-token",
+        max_results=1,
+    )
+    delete_state_mock.assert_called_once()

@@ -1,7 +1,9 @@
 
 
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_delete_draft_tool, gmail_move_email_to_trash_tool, gmail_move_sent_email_to_trash_tool, gmail_read_latest_email_tool, gmail_read_specific_draft_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
 from app.tools.registry import TOOLS
 
@@ -11,7 +13,31 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
     if tool_name not in TOOLS:
         raise ValueError("Unknown tool")
     
-    tool_function = TOOLS[tool_name]
+    tool_definition  = TOOLS[tool_name]
+    tool_function = tool_definition["function"]
+    tool_arguments_schema = tool_definition["arguments_schema"]
+
+    if tool_arguments_schema is not None:
+        try:
+            validated_arguments = tool_arguments_schema.model_validate(arguments)
+            arguments = validated_arguments.model_dump(mode="json")
+        except ValidationError as error:
+
+            safe_errors = [
+                {
+                    "field": ".".join(str(part) for part in item["loc"]),
+                    "message": item["msg"],
+                }
+                for item in error.errors()
+            ]
+
+            raise AppError(
+                code="invalid_tool_arguments",
+                message="The tool arguments are invalid.",
+                status_code=422,
+
+                details={"fields": safe_errors},
+            ) from error
     
     if tool_function == gmail_send_drafted_email_tool:
         return gmail_send_drafted_email_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)

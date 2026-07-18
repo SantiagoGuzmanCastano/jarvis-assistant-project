@@ -390,40 +390,41 @@ def gmail_search_drafted_emails_tool(arguments: dict, user_id: int, session: Ses
 def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session, conversation_id: int):
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
-    selected_result_index = arguments.get("selected_result_index")
+    selected_result_position = arguments.get("selected_result_position")
+    recent_result_position = arguments.get("recent_result_position")
 
-    requested_draft_count = arguments.get("requested_draft_count", 1)
+    requested_result_count = arguments.get("requested_result_count", 1)
 
-    if requested_draft_count is None:
+    if requested_result_count is None:
         return ({
             "sent": False,
             "reason": "multiple_draft_send_not_supported",
-            "requested_draft_count": None
+            "requested_result_count": None
         })
 
-    requested_draft_count = int(requested_draft_count)
+    requested_result_count = int(requested_result_count)
 
-    if requested_draft_count > 1:
+    if requested_result_count > 1:
         return ({
             "sent": False,
             "reason": "multiple_draft_send_not_supported",
-            "requested_draft_count": requested_draft_count
+            "requested_result_count": requested_result_count
         })
 
-    if not requested_draft_count:
+    if not requested_result_count:
         return ({
             "sent": False,
             "reason": "incorrect_draft_send",
-            "requested_draft_count": 0
+            "requested_result_count": 0
         })
 
-    if selected_result_index is not None:
-        selected_result_index = int(selected_result_index)
+    if selected_result_position is not None:
+        selected_result_position = int(selected_result_position)
 
     #si hay una lista en tool_state y se elige entre una
-    if selected_result_index is not None:
+    if selected_result_position is not None:
         print("\nSELECTED RESULT INDEX ->")
-        print(selected_result_index)
+        print(selected_result_position)
         tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
 
         if tool_payload is None:
@@ -433,20 +434,20 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
                 "message": "No previous draft selection was found."
             }
 
-        if selected_result_index < 1 or selected_result_index> len(tool_payload): # type: ignore # noqa: F821
+        if selected_result_position < 1 or selected_result_position > len(tool_payload): # type: ignore # noqa: F821
             return ({
                 "sent": False,
-                "reason": "invalid_selected_result_index",
-                "message": "Selected draft index is out of range",
+                "reason": "invalid_selected_result_position",
+                "message": "Selected draft position is out of range",
                 "available_drafts": tool_payload # type: ignore  # noqa: F821
             })
 
-        selected_draft = tool_payload[selected_result_index-1] # pyright: ignore[reportUnboundVariable]
+        selected_draft = tool_payload[selected_result_position-1] # pyright: ignore[reportUnboundVariable]
         print("\nDRAFT SELECTED ->")
         print(selected_draft)
 
 
-        send_gmail_draft(draft_id=tool_payload[selected_result_index-1]["draft_id"], access_token=access_token) # type: ignore
+        send_gmail_draft(draft_id=tool_payload[selected_result_position-1]["draft_id"], access_token=access_token) # type: ignore
         delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
         return ({
             "sent": True,
@@ -455,21 +456,9 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         })
 
 
-    selection_type = arguments.get("selection_type")
-
     #si es un correo reciente, ultimo, penultimo
-    if selection_type == "recent_draft":
-
-        recent_draft_index = arguments.get("recent_draft_index")
-
-        if recent_draft_index is None:
-            return {
-                "sent": False,
-                "reason": "missing_recent_draft_index",
-                "message": "Missing recent draft index."
-            }
-
-        recent_draft_position = int(recent_draft_index)
+    if recent_result_position is not None:
+        recent_draft_position = int(recent_result_position)
         recent_draft_index = recent_draft_position - 1
 
         max_results = max(recent_draft_position, 1)
@@ -487,8 +476,8 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         if recent_draft_index < 0 or recent_draft_index >= len(last_drafted_emails):
             return {
                 "sent": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Requested recent draft index is out of range.",
+                "reason": "invalid_recent_result_position",
+                "message": "Requested recent draft position is out of range.",
                 "available_drafts": last_drafted_emails,
             }
 
@@ -584,17 +573,17 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
 def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dict, conversation_id: int):
 
     access_token = get_valid_google_access_token(user_id=user_id,session=session,)
-    recent_draft_index = arguments.get("recent_draft_index")
-    selection_type = arguments.get("selection_type")
+    recent_result_position = arguments.get("recent_result_position")
+    selection_source = arguments.get("selection_source")
 
-    if selection_type not in {"active_draft", "recent_draft", "specific_draft"}:
+    if selection_source not in {"active", "recent", "search"}:
         return {
             "updated": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid draft selection type is required.",
+            "reason": "invalid_selection_source",
+            "message": "A valid draft selection source is required.",
         }
 
-    if selection_type == "active_draft":
+    if selection_source == "active":
         tool_payload = get_tool_payload(
             user_id=user_id,
             session=session,
@@ -677,32 +666,32 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             },
         }
 
-    if selection_type == "recent_draft":
+    if selection_source == "recent":
 
-        recent_draft_index = arguments.get("recent_draft_index")
+        recent_result_position = arguments.get("recent_result_position")
 
-        if recent_draft_index is None:
+        if recent_result_position is None:
             return {
                 "updated": False,
-                "reason": "missing_recent_draft_index",
-                "message": "Missing recent draft index."
+                "reason": "missing_recent_result_position",
+                "message": "Missing recent draft position."
             }
 
-        if recent_draft_index is not None:
+        if recent_result_position is not None:
             try:
-                recent_draft_position = int(recent_draft_index)
+                recent_draft_position = int(recent_result_position)
             except (TypeError, ValueError):
                 return {
                     "updated": False,
-                    "reason": "invalid_recent_draft_index",
-                    "message": "Recent draft index must be a positive integer.",
+                    "reason": "invalid_recent_result_position",
+                    "message": "Recent draft position must be a positive integer.",
                 }
 
             if recent_draft_position < 1:
                 return {
                     "updated": False,
-                    "reason": "invalid_recent_draft_index",
-                    "message": "Recent draft index must be a positive integer.",
+                    "reason": "invalid_recent_result_position",
+                    "message": "Recent draft position must be a positive integer.",
                 }
 
             recent_draft_index = recent_draft_position - 1
@@ -720,8 +709,8 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             if recent_draft_index < 0 or recent_draft_index >= len(last_drafted_emails):
                 return {
                     "updated": False,
-                    "reason": "invalid_recent_draft_index",
-                    "message": "Requested recent draft index is out of range.",
+                    "reason": "invalid_recent_result_position",
+                    "message": "Requested recent draft position is out of range.",
                     "available_drafts": last_drafted_emails,
                 }
 
@@ -802,18 +791,18 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
                 },
             }
 
-    if selection_type == "specific_draft":
+    if selection_source == "search":
 
-        selected_result_index = arguments.get("selected_result_index")
+        selected_result_position = arguments.get("selected_result_position")
 
-        if selected_result_index is not None:
+        if selected_result_position is not None:
             try:
-                selected_result_index = int(selected_result_index)
+                selected_result_position = int(selected_result_position)
             except (TypeError, ValueError):
                 return {
                     "updated": False,
-                    "reason": "invalid_selected_result_index",
-                    "message": "Selected draft index must be a positive integer.",
+                    "reason": "invalid_selected_result_position",
+                    "message": "Selected draft position must be a positive integer.",
                 }
 
             tool_payload = get_tool_payload(user_id=user_id,conversation_id=conversation_id,session=session)
@@ -834,15 +823,18 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
 
             drafts_to_choose = tool_payload["drafts"]
 
-            if selected_result_index < 1 or selected_result_index > len(drafts_to_choose):
+            if (
+                selected_result_position < 1
+                or selected_result_position > len(drafts_to_choose)
+            ):
                 return {
                     "updated": False,
-                    "reason": "invalid_selected_result_index",
-                    "message": "Selected draft index is out of range.",
+                    "reason": "invalid_selected_result_position",
+                    "message": "Selected draft position is out of range.",
                     "available_drafts": drafts_to_choose,
                 }
 
-            selected_draft = drafts_to_choose[selected_result_index - 1]
+            selected_draft = drafts_to_choose[selected_result_position - 1]
 
             requested_new_recipient_email = tool_payload.get("new_recipient_email", "")
             requested_new_subject = tool_payload.get("new_subject", "")
@@ -911,7 +903,7 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
                 },
             }
 
-        if selected_result_index is None:
+        if selected_result_position is None:
             try:
                 max_results = min(max(int(arguments.get("max_results", 5)), 1), 15)
             except (TypeError, ValueError):
@@ -1092,15 +1084,13 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
 def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Session, conversation_id: int):
     access_token = get_valid_google_access_token(user_id=user_id,session=session)
     reply_body = arguments.get("reply_body", "")
+    recent_result_position = arguments.get("recent_result_position")
 
-    selection_type = arguments.get("selection_type")
-
-    if selection_type not in {"recent_email", "specific_email"}:
-        return {
-            "created": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid email selection type is required.",
-        }
+    selection_type = (
+        "recent_email"
+        if recent_result_position is not None
+        else "specific_email"
+    )
 
     if selection_type == "recent_email":
         if not reply_body:
@@ -1110,22 +1100,22 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                 "message": "Body is required for the new draft content, request it to the user",
             }
 
-        recent_email_position = arguments.get("recent_email_position", 1)
+        recent_email_position = recent_result_position
 
         try:
             recent_email_position = int(recent_email_position)
         except (TypeError, ValueError):
             return {
                 "created": False,
-                "reason": "invalid_recent_email_position",
-                "message": "Recent email position must be a positive integer.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be a positive integer.",
             }
 
         if recent_email_position < 1:
             return {
                 "created": False,
-                "reason": "invalid_recent_email_position",
-                "message": "Recent email position must be at least 1.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be at least 1.",
             }
 
         max_results = recent_email_position
@@ -1143,7 +1133,7 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
         if recent_email_position < 1 or recent_email_position > len(emails_found):
             return {
                 "created": False,
-                "reason": "invalid_recent_email_position",
+                "reason": "invalid_recent_result_position",
                 "message": "The requested email position is out of range.",
                 "available_emails": len(emails_found),
             }
@@ -1335,15 +1325,15 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
 def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict,):
     access_token = get_valid_google_access_token(user_id=user_id,session=session,)
 
-    recent_email_position = arguments.get("recent_email_position")
+    recent_result_position = arguments.get("recent_result_position")
 
-    if recent_email_position:
-        recent_email_position = int(recent_email_position)
+    if recent_result_position:
+        recent_result_position = int(recent_result_position)
 
-        if recent_email_position < 1:
+        if recent_result_position < 1:
             return {
                 "found": False,
-                "reason": "invalid_recent_email_position",
+                "reason": "invalid_recent_result_position",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1351,20 +1341,20 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
 
         latest_emails = fetch_full_latest_gmail_messages(
             access_token=access_token,
-            max_results=recent_email_position,
+            max_results=recent_result_position,
         )
 
-        if recent_email_position > len(latest_emails):
+        if recent_result_position > len(latest_emails):
             return {
                 "found": False,
-                "reason": "recent_email_position_out_of_range",
+                "reason": "recent_result_position_out_of_range",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
         email = format_gmail_email(
-            email_requested=latest_emails[recent_email_position-1]
+            email_requested=latest_emails[recent_result_position-1]
         )
 
         return {
@@ -1502,7 +1492,7 @@ def format_gmail_email_candidates(emails: list[dict],) -> list[dict]:
 
 def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: int,conversation_id: int):
 
-    requested_email_count = arguments.get("requested_email_count", 1)
+    requested_result_count = arguments.get("requested_result_count", 1)
 
     selected_result_position = arguments.get("selected_result_position", "")
 
@@ -1513,7 +1503,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
     sender_hint = arguments.get("sender_hint", [])
 
 
-    if requested_email_count > 1:
+    if requested_result_count > 1:
         return {
             "read": False,
             "reason": "multiple_email_read_not_supported",
@@ -1521,7 +1511,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
                 "Only one complete email can be read per request. "
                 "Ask the user which email they want to read first."
             ),
-            "requested_email_count": requested_email_count,
+            "requested_result_count": requested_result_count,
             "emails": [],
             "returned_count": 0,
             "has_more": False,
@@ -1634,64 +1624,52 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
 
 def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: int, conversation_id: int,
 ):
-    requested_draft_count = arguments.get("requested_draft_count", 1)
-    selection_type = arguments.get("selection_type", "specific_draft")
-    selected_result_index = arguments.get("selected_result_index")
+    requested_result_count = arguments.get("requested_result_count", 1)
+    selected_result_position = arguments.get("selected_result_position")
+    recent_result_position = arguments.get("recent_result_position")
     reuse_previous_search = arguments.get("reuse_previous_search", False)
 
     try:
-        requested_draft_count = int(requested_draft_count)
+        requested_result_count = int(requested_result_count)
     except (TypeError, ValueError):
         return {
             "read": False,
-            "reason": "invalid_requested_draft_count",
-            "message": "Requested draft count must be a valid number.",
+            "reason": "invalid_requested_result_count",
+            "message": "Requested result count must be a valid number.",
             "drafts": [],
             "returned_count": 0,
             "has_more": False,
         }
 
-    if requested_draft_count != 1:
+    if requested_result_count != 1:
         return {
             "read": False,
             "reason": "multiple_draft_read_not_supported",
             "message": "Only one complete draft can be read per request.",
-            "requested_draft_count": requested_draft_count,
+            "requested_result_count": requested_result_count,
             "drafts": [],
             "returned_count": 0,
             "has_more": False,
         }
 
-    if selection_type not in {"specific_draft", "recent_draft"}:
-        return {
-            "read": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid draft selection type is required.",
-            "drafts": [],
-            "returned_count": 0,
-            "has_more": False,
-        }
-
-    if selection_type == "recent_draft":
-        recent_draft_index = arguments.get("recent_draft_index")
-
+    if recent_result_position is not None:
         try:
-            recent_draft_position = int(recent_draft_index)
+            recent_result_position = int(recent_result_position)
         except (TypeError, ValueError):
             return {
                 "read": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Recent draft index must be a valid number.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent draft position must be a valid number.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        if recent_draft_position < 1:
+        if recent_result_position < 1:
             return {
                 "read": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Recent draft index must be at least 1.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent draft position must be at least 1.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1705,14 +1683,14 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         access_token = get_valid_google_access_token(user_id=user_id, session=session)
         recent_drafts = fetch_gmail_drafts(
             access_token=access_token,
-            max_results=recent_draft_position,
+            max_results=recent_result_position,
         )
 
-        if recent_draft_position > len(recent_drafts):
+        if recent_result_position > len(recent_drafts):
             return {
                 "read": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Requested recent draft index is out of range.",
+                "reason": "invalid_recent_result_position",
+                "message": "Requested recent draft position is out of range.",
                 "available_drafts": len(recent_drafts),
                 "drafts": [],
                 "returned_count": 0,
@@ -1721,10 +1699,10 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
         selected_draft = format_gmail_draft_full(
             draft=fetch_gmail_draft_full(
-                draft_id=recent_drafts[recent_draft_position - 1]["id"],
+                draft_id=recent_drafts[recent_result_position - 1]["id"],
                 access_token=access_token,
             ),
-            position=recent_draft_position,
+            position=recent_result_position,
         )
 
         return {
@@ -1734,14 +1712,14 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             "has_more": False,
         }
 
-    if selected_result_index is not None:
+    if selected_result_position is not None:
         try:
-            selected_result_index = int(selected_result_index)
+            selected_result_position = int(selected_result_position)
         except (TypeError, ValueError):
             return {
                 "read": False,
-                "reason": "invalid_selected_result_index",
-                "message": "Selected draft index must be a valid number.",
+                "reason": "invalid_selected_result_position",
+                "message": "Selected draft position must be a valid number.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1769,18 +1747,21 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
         drafts_to_choose = tool_payload["drafts"]
 
-        if (selected_result_index < 1 or selected_result_index > len(drafts_to_choose)):
+        if (
+            selected_result_position < 1
+            or selected_result_position > len(drafts_to_choose)
+        ):
             return {
                 "read": False,
-                "reason": "invalid_selected_result_index",
-                "message": "Selected draft index is out of range.",
+                "reason": "invalid_selected_result_position",
+                "message": "Selected draft position is out of range.",
                 "available_positions": len(drafts_to_choose),
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        selected_draft = drafts_to_choose[selected_result_index - 1]
+        selected_draft = drafts_to_choose[selected_result_position - 1]
         delete_tool_state(
             user_id=user_id,
             conversation_id=conversation_id,
@@ -1933,39 +1914,29 @@ def gmail_move_email_to_trash_tool(
     user_id: int,
     conversation_id: int,
 ):
-    requested_email_count = arguments.get("requested_email_count", 1)
-    selection_type = arguments.get("selection_type", "specific_email")
+    requested_result_count = arguments.get("requested_result_count", 1)
     selected_result_position = arguments.get("selected_result_position")
+    recent_result_position = arguments.get("recent_result_position")
     reuse_previous_search = arguments.get("reuse_previous_search", False)
 
     try:
-        requested_email_count = int(requested_email_count)
+        requested_result_count = int(requested_result_count)
     except (TypeError, ValueError):
         return {
             "trashed": False,
-            "reason": "invalid_requested_email_count",
-            "message": "Requested email count must be a valid number.",
+            "reason": "invalid_requested_result_count",
+            "message": "Requested result count must be a valid number.",
             "emails": [],
             "returned_count": 0,
             "has_more": False,
         }
 
-    if requested_email_count != 1:
+    if requested_result_count != 1:
         return {
             "trashed": False,
             "reason": "multiple_email_trash_not_supported",
             "message": "Only one email can be moved to trash per request.",
-            "requested_email_count": requested_email_count,
-            "emails": [],
-            "returned_count": 0,
-            "has_more": False,
-        }
-
-    if selection_type not in {"specific_email", "recent_email"}:
-        return {
-            "trashed": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid email selection type is required.",
+            "requested_result_count": requested_result_count,
             "emails": [],
             "returned_count": 0,
             "has_more": False,
@@ -1973,26 +1944,24 @@ def gmail_move_email_to_trash_tool(
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
 
-    if selection_type == "recent_email":
-        recent_email_position = arguments.get("recent_email_position")
-
+    if recent_result_position is not None:
         try:
-            recent_email_position = int(recent_email_position)
+            recent_result_position = int(recent_result_position)
         except (TypeError, ValueError):
             return {
                 "trashed": False,
-                "reason": "invalid_recent_email_position",
-                "message": "Recent email position must be a valid number.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be a valid number.",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        if recent_email_position < 1:
+        if recent_result_position < 1:
             return {
                 "trashed": False,
-                "reason": "invalid_recent_email_position",
-                "message": "Recent email position must be at least 1.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be at least 1.",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -2005,22 +1974,22 @@ def gmail_move_email_to_trash_tool(
         )
         recent_email_results = fetch_latest_gmail_messages(
             access_token=access_token,
-            max_results=recent_email_position,
+            max_results=recent_result_position,
         )
         recent_emails = recent_email_results["emails"]
 
-        if recent_email_position > len(recent_emails):
+        if recent_result_position > len(recent_emails):
             return {
                 "trashed": False,
-                "reason": "invalid_recent_email_position",
-                "message": "Requested recent email position is out of range.",
+                "reason": "invalid_recent_result_position",
+                "message": "Requested recent result position is out of range.",
                 "available_emails": len(recent_emails),
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        selected_email = recent_emails[recent_email_position - 1]
+        selected_email = recent_emails[recent_result_position - 1]
         move_gmail_message_to_trash(
             access_token=access_token,
             message_id=selected_email["id"],
@@ -2262,39 +2231,29 @@ def gmail_move_sent_email_to_trash_tool(
     user_id: int,
     conversation_id: int,
 ):
-    requested_email_count = arguments.get("requested_email_count", 1)
-    selection_type = arguments.get("selection_type", "specific_sent_email")
+    requested_result_count = arguments.get("requested_result_count", 1)
     selected_result_position = arguments.get("selected_result_position")
+    recent_result_position = arguments.get("recent_result_position")
     reuse_previous_search = arguments.get("reuse_previous_search", False)
 
     try:
-        requested_email_count = int(requested_email_count)
+        requested_result_count = int(requested_result_count)
     except (TypeError, ValueError):
         return {
             "trashed": False,
-            "reason": "invalid_requested_email_count",
-            "message": "Requested sent email count must be a valid number.",
+            "reason": "invalid_requested_result_count",
+            "message": "Requested result count must be a valid number.",
             "emails": [],
             "returned_count": 0,
             "has_more": False,
         }
 
-    if requested_email_count != 1:
+    if requested_result_count != 1:
         return {
             "trashed": False,
             "reason": "multiple_sent_email_trash_not_supported",
             "message": "Only one sent email can be moved to trash per request.",
-            "requested_email_count": requested_email_count,
-            "emails": [],
-            "returned_count": 0,
-            "has_more": False,
-        }
-
-    if selection_type not in {"specific_sent_email", "recent_sent_email"}:
-        return {
-            "trashed": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid sent email selection type is required.",
+            "requested_result_count": requested_result_count,
             "emails": [],
             "returned_count": 0,
             "has_more": False,
@@ -2302,26 +2261,24 @@ def gmail_move_sent_email_to_trash_tool(
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
 
-    if selection_type == "recent_sent_email":
-        recent_sent_email_position = arguments.get("recent_sent_email_position")
-
+    if recent_result_position is not None:
         try:
-            recent_sent_email_position = int(recent_sent_email_position)
+            recent_result_position = int(recent_result_position)
         except (TypeError, ValueError):
             return {
                 "trashed": False,
-                "reason": "invalid_recent_sent_email_position",
-                "message": "Recent sent email position must be a valid number.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be a valid number.",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        if recent_sent_email_position < 1:
+        if recent_result_position < 1:
             return {
                 "trashed": False,
-                "reason": "invalid_recent_sent_email_position",
-                "message": "Recent sent email position must be at least 1.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent result position must be at least 1.",
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -2330,22 +2287,22 @@ def gmail_move_sent_email_to_trash_tool(
         delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
         recent_results = fetch_sent_gmail_messages(
             access_token=access_token,
-            max_results=recent_sent_email_position,
+            max_results=recent_result_position,
         )
         recent_emails = recent_results["emails"]
 
-        if recent_sent_email_position > len(recent_emails):
+        if recent_result_position > len(recent_emails):
             return {
                 "trashed": False,
-                "reason": "invalid_recent_sent_email_position",
-                "message": "Requested recent sent email position is out of range.",
+                "reason": "invalid_recent_result_position",
+                "message": "Requested recent result position is out of range.",
                 "available_emails": len(recent_emails),
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        selected_email = recent_emails[recent_sent_email_position - 1]
+        selected_email = recent_emails[recent_result_position - 1]
         move_gmail_message_to_trash(
             access_token=access_token,
             message_id=selected_email["message_id"],
@@ -2570,39 +2527,29 @@ def gmail_delete_draft_tool(
     user_id: int,
     conversation_id: int,
 ):
-    requested_draft_count = arguments.get("requested_draft_count", 1)
-    selection_type = arguments.get("selection_type", "specific_draft")
-    selected_result_index = arguments.get("selected_result_index")
+    requested_result_count = arguments.get("requested_result_count", 1)
+    selected_result_position = arguments.get("selected_result_position")
+    recent_result_position = arguments.get("recent_result_position")
     reuse_previous_search = arguments.get("reuse_previous_search", False)
 
     try:
-        requested_draft_count = int(requested_draft_count)
+        requested_result_count = int(requested_result_count)
     except (TypeError, ValueError):
         return {
             "deleted": False,
-            "reason": "invalid_requested_draft_count",
-            "message": "Requested draft count must be a valid number.",
+            "reason": "invalid_requested_result_count",
+            "message": "Requested result count must be a valid number.",
             "drafts": [],
             "returned_count": 0,
             "has_more": False,
         }
 
-    if requested_draft_count != 1:
+    if requested_result_count != 1:
         return {
             "deleted": False,
             "reason": "multiple_draft_delete_not_supported",
             "message": "Only one draft can be permanently deleted per request.",
-            "requested_draft_count": requested_draft_count,
-            "drafts": [],
-            "returned_count": 0,
-            "has_more": False,
-        }
-
-    if selection_type not in {"specific_draft", "recent_draft"}:
-        return {
-            "deleted": False,
-            "reason": "invalid_selection_type",
-            "message": "A valid draft selection type is required.",
+            "requested_result_count": requested_result_count,
             "drafts": [],
             "returned_count": 0,
             "has_more": False,
@@ -2610,26 +2557,24 @@ def gmail_delete_draft_tool(
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
 
-    if selection_type == "recent_draft":
-        recent_draft_index = arguments.get("recent_draft_index")
-
+    if recent_result_position is not None:
         try:
-            recent_draft_position = int(recent_draft_index)
+            recent_result_position = int(recent_result_position)
         except (TypeError, ValueError):
             return {
                 "deleted": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Recent draft index must be a valid number.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent draft position must be a valid number.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        if recent_draft_position < 1:
+        if recent_result_position < 1:
             return {
                 "deleted": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Recent draft index must be at least 1.",
+                "reason": "invalid_recent_result_position",
+                "message": "Recent draft position must be at least 1.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -2642,28 +2587,28 @@ def gmail_delete_draft_tool(
         )
         recent_drafts = fetch_gmail_drafts(
             access_token=access_token,
-            max_results=recent_draft_position,
+            max_results=recent_result_position,
         )
 
-        if recent_draft_position > len(recent_drafts):
+        if recent_result_position > len(recent_drafts):
             return {
                 "deleted": False,
-                "reason": "invalid_recent_draft_index",
-                "message": "Requested recent draft index is out of range.",
+                "reason": "invalid_recent_result_position",
+                "message": "Requested recent draft position is out of range.",
                 "available_drafts": len(recent_drafts),
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        selected_draft = recent_drafts[recent_draft_position - 1]
+        selected_draft = recent_drafts[recent_result_position - 1]
         delete_gmail_draft(
             draft_id=selected_draft["id"],
             access_token=access_token,
         )
         formatted_draft = format_gmail_draft_candidate(
             draft=selected_draft,
-            position=recent_draft_position,
+            position=recent_result_position,
         )
 
         return {
@@ -2673,14 +2618,14 @@ def gmail_delete_draft_tool(
             "has_more": False,
         }
 
-    if selected_result_index is not None:
+    if selected_result_position is not None:
         try:
-            selected_result_index = int(selected_result_index)
+            selected_result_position = int(selected_result_position)
         except (TypeError, ValueError):
             return {
                 "deleted": False,
-                "reason": "invalid_selected_result_index",
-                "message": "Selected draft index must be a valid number.",
+                "reason": "invalid_selected_result_position",
+                "message": "Selected draft position must be a valid number.",
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -2709,20 +2654,20 @@ def gmail_delete_draft_tool(
         drafts_to_choose = tool_payload["drafts"]
 
         if (
-            selected_result_index < 1
-            or selected_result_index > len(drafts_to_choose)
+            selected_result_position < 1
+            or selected_result_position > len(drafts_to_choose)
         ):
             return {
                 "deleted": False,
-                "reason": "invalid_selected_result_index",
-                "message": "Selected draft index is out of range.",
+                "reason": "invalid_selected_result_position",
+                "message": "Selected draft position is out of range.",
                 "available_positions": len(drafts_to_choose),
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
             }
 
-        selected_draft = drafts_to_choose[selected_result_index - 1]
+        selected_draft = drafts_to_choose[selected_result_position - 1]
         delete_gmail_draft(
             draft_id=selected_draft["draft_id"],
             access_token=access_token,
