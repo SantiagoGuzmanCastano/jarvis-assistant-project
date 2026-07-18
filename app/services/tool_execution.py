@@ -16,6 +16,7 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
     tool_definition  = TOOLS[tool_name]
     tool_function = tool_definition["function"]
     tool_arguments_schema = tool_definition["arguments_schema"]
+    tool_result_schema = tool_definition.get("result_schema")
 
     if tool_arguments_schema is not None:
         try:
@@ -40,31 +41,47 @@ def tool_execution_system(tool_name: str, arguments: dict, user_id:int, session:
             ) from error
     
     if tool_function == gmail_send_drafted_email_tool:
-        return gmail_send_drafted_email_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
-    if tool_function == gmail_update_email_draft_tool:
-        return gmail_update_email_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
-    if tool_function == gmail_create_reply_draft_tool:
-        return gmail_create_reply_draft_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_read_specific_email_tool:
-        return gmail_read_specific_email_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_read_specific_draft_tool:
-        return gmail_read_specific_draft_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_move_email_to_trash_tool:
-        return gmail_move_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_move_sent_email_to_trash_tool:
-        return gmail_move_sent_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_delete_draft_tool:
-        return gmail_delete_draft_tool(arguments=arguments, user_id=user_id, session=session,
-        conversation_id=conversation_id)
-    if tool_function == gmail_search_drafted_emails_tool:
-        return gmail_search_drafted_emails_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
-    #esto devuelve la funcion EJECUTADA
-    return tool_function(arguments=arguments, user_id=user_id, session=session)
+        tool_result = gmail_send_drafted_email_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_update_email_draft_tool:
+        tool_result = gmail_update_email_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_create_reply_draft_tool:
+        tool_result = gmail_create_reply_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_read_specific_email_tool:
+        tool_result = gmail_read_specific_email_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_read_specific_draft_tool:
+        tool_result = gmail_read_specific_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_move_email_to_trash_tool:
+        tool_result = gmail_move_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_move_sent_email_to_trash_tool:
+        tool_result = gmail_move_sent_email_to_trash_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_delete_draft_tool:
+        tool_result = gmail_delete_draft_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    elif tool_function == gmail_search_drafted_emails_tool:
+        tool_result = gmail_search_drafted_emails_tool(arguments=arguments, user_id=user_id, session=session, conversation_id=conversation_id)
+    else:
+        tool_result = tool_function(arguments=arguments, user_id=user_id, session=session)
+
+    if tool_result_schema is None:
+        return tool_result
+
+    try:
+        validated_result = tool_result_schema.model_validate(tool_result)
+    except ValidationError as error:
+        safe_errors = [
+            {
+                "field": ".".join(str(part) for part in item["loc"]),
+                "message": item["msg"],
+            }
+            for item in error.errors()
+        ]
+        raise AppError(
+            code="invalid_tool_result",
+            message="The tool returned an invalid result.",
+            status_code=500,
+            details={"fields": safe_errors},
+        ) from error
+
+    return validated_result.model_dump(mode="json")
 
 
 def build_tool_context(tool_name: str, tool_result: dict) -> str:
@@ -571,7 +588,7 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             {tool_result}
 
             Rules:
-            - If read is successful, present the complete email naturally.
+            - If success is true, present the complete email naturally.
             - Treat tool_result as the only source of truth.
             - Do not invent missing information.
             - Do not expose message IDs.
@@ -643,9 +660,9 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             Rules:
             - Treat tool_result as the only source of truth.
             - Respond in the same language as the user.
-            - If read is true, present the selected draft's recipient, subject, date, and complete body naturally.
-            - If read is false, explain the reason naturally.
-            - Do not claim success unless read is true.
+            - If success is true, present the selected draft's recipient, subject, date, and complete body naturally.
+            - If success is false, explain the reason naturally.
+            - Do not claim success unless success is true.
             - Do not invent missing information.
             - Do not expose draft IDs or technical identifiers.
         """
@@ -715,9 +732,9 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             Rules:
             - Treat tool_result as the only source of truth.
             - Respond in the same language as the user.
-            - If trashed is true, confirm that the email was moved to Gmail Trash, not permanently deleted.
-            - If trashed is false, explain the reason naturally.
-            - Do not claim success unless trashed is true.
+            - If success is true, confirm that the email was moved to Gmail Trash, not permanently deleted.
+            - If success is false, explain the reason naturally.
+            - Do not claim success unless success is true.
             - Do not invent missing information.
             - Do not expose message IDs or technical identifiers.
         """
@@ -788,10 +805,10 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             Rules:
             - Treat tool_result as the only source of truth.
             - Respond in the same language as the user.
-            - If trashed is true, confirm that the sent email was moved to Gmail Trash, not permanently deleted.
+            - If success is true, confirm that the sent email was moved to Gmail Trash, not permanently deleted.
             - Make it clear that this was an email sent by the user.
-            - If trashed is false, explain the reason naturally.
-            - Do not claim success unless trashed is true.
+            - If success is false, explain the reason naturally.
+            - Do not claim success unless success is true.
             - Do not invent missing information.
             - Do not expose message IDs or technical identifiers.
         """
@@ -861,9 +878,9 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
             Rules:
             - Treat tool_result as the only source of truth.
             - Respond in the same language as the user.
-            - If deleted is true, clearly confirm that the draft was permanently deleted and cannot be restored from Trash.
-            - If deleted is false, explain the reason naturally.
-            - Do not claim success unless deleted is true.
+            - If success is true, clearly confirm that the draft was permanently deleted and cannot be restored from Trash.
+            - If success is false, explain the reason naturally.
+            - Do not claim success unless success is true.
             - Do not invent missing information.
             - Do not expose draft IDs or technical identifiers.
         """

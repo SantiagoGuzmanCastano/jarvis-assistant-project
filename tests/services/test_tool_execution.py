@@ -4,6 +4,7 @@ import pytest
 
 from app.core.errors import AppError
 from app.schemas.tools.gmail import CreateDraftArguments, EmailSearchArguments
+from app.schemas.tools.gmail_results import CurrentTimeResult
 from app.services import tool_execution
 
 
@@ -86,3 +87,69 @@ def test_tool_execution_rejects_invalid_arguments_without_executing_tool(
         ],
     }
     tool_function.assert_not_called()
+
+
+def test_tool_execution_validates_and_serializes_tool_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_function = Mock(return_value={"current_time": "2026-07-18T10:00:00"})
+    monkeypatch.setattr(
+        tool_execution,
+        "TOOLS",
+        {
+            "fake_time": {
+                "function": tool_function,
+                "arguments_schema": None,
+                "result_schema": CurrentTimeResult,
+            },
+        },
+    )
+
+    result = tool_execution.tool_execution_system(
+        tool_name="fake_time",
+        arguments={},
+        user_id=7,
+        session=Mock(),
+        conversation_id=11,
+    )
+
+    assert result == {"current_time": "2026-07-18T10:00:00"}
+
+
+def test_tool_execution_rejects_invalid_tool_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_function = Mock(return_value={"time": "2026-07-18T10:00:00"})
+    monkeypatch.setattr(
+        tool_execution,
+        "TOOLS",
+        {
+            "fake_time": {
+                "function": tool_function,
+                "arguments_schema": None,
+                "result_schema": CurrentTimeResult,
+            },
+        },
+    )
+
+    with pytest.raises(AppError) as error_info:
+        tool_execution.tool_execution_system(
+            tool_name="fake_time",
+            arguments={},
+            user_id=7,
+            session=Mock(),
+            conversation_id=11,
+        )
+
+    error = error_info.value
+
+    assert error.code == "invalid_tool_result"
+    assert error.status_code == 500
+    assert error.details == {
+        "fields": [
+            {
+                "field": "current_time",
+                "message": "Field required",
+            },
+        ],
+    }

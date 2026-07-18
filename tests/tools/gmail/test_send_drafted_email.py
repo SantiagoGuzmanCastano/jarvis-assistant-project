@@ -29,9 +29,8 @@ def test_selected_draft_is_sent_and_state_is_cleared(
     )
 
     assert result == {
-        "sent": True,
-        "draft_id": "draft-2",
-        "selected_draft": drafts[1],
+        "success": True,
+        "draft": drafts[1],
     }
     send_draft_mock.assert_called_once_with(
         draft_id="draft-2",
@@ -58,9 +57,9 @@ def test_multiple_draft_send_request_is_rejected(
     )
 
     assert result == {
-        "sent": False,
+        "success": False,
         "reason": "multiple_draft_send_not_supported",
-        "requested_result_count": 2,
+        "message": "Only one draft can be sent per request.",
     }
 
 
@@ -88,7 +87,7 @@ def test_multiple_draft_send_search_saves_selection_state(
         conversation_id=11,
     )
 
-    assert result["sent"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_matching_drafts"
     create_state_mock.assert_called_once_with(
         user_id=7,
@@ -114,7 +113,7 @@ def test_recent_result_position_uses_recent_draft_flow(
         conversation_id=11,
     )
 
-    assert result["sent"] is False
+    assert result["success"] is False
     assert result["reason"] == "invalid_recent_result_position"
     fetch_drafts_mock.assert_called_once_with(
         access_token="access-token",

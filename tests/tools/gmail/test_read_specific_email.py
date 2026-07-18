@@ -1,6 +1,7 @@
 import base64
 from unittest.mock import Mock, patch
 
+from app.schemas.tools.gmail_results import ReadEmailResult
 from app.tools.external.gmail_tools import gmail_read_specific_email_tool
 
 
@@ -68,11 +69,11 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
         conversation_id=11,
     )
 
-    #espero que read sea false ...
-    assert result["read"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_matching_emails"
     assert result["returned_count"] == 3
     assert [email["position"] for email in result["matching_emails"]] == [1, 2, 3]
+    assert ReadEmailResult.model_validate(result).success is False
 
     # build_query_mock
     # → representa build_gmail_query.
@@ -121,12 +122,13 @@ def test_selected_position_returns_saved_email_and_clears_state( get_payload_moc
     )
 
     assert result == {
-        "read": True,
+        "success": True,
         "emails": [
             {
-                "from": "Ana <ana@example.com>",
+                "sender": "Ana <ana@example.com>",
                 "subject": "Factura febrero",
                 "date": "Mon, 1 Jun 2026 10:00:00 -0500",
+                "snippet": "Segundo correo",
                 "body": "Segundo correo",
             }
         ],
@@ -164,7 +166,7 @@ def test_selected_position_without_state_returns_error(get_payload_mock: Mock, d
     )
 
     assert result == {
-                "read": False,
+                "success": False,
                 "reason": "missing_tool_state",
                 "message": "No previous email selection was found.",
                 "emails": [],
@@ -180,6 +182,26 @@ def test_selected_position_without_state_returns_error(get_payload_mock: Mock, d
     delete_state_mock.assert_not_called()
 
 
+@patch("app.tools.external.gmail_tools.fetch_full_specific_gmail_messages", return_value=[])
+@patch("app.tools.external.gmail_tools.get_valid_google_access_token", return_value="access-token")
+@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="from:ana@example.com")
+def test_empty_search_result_returns_email_not_found(
+    build_query_mock: Mock,
+    access_token_mock: Mock,
+    fetch_messages_mock: Mock,
+) -> None:
+    result = gmail_read_specific_email_tool(
+        arguments={"sender_hint": ["Ana"]},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "email_not_found"
+    assert ReadEmailResult.model_validate(result).emails == []
+
+
 def test_multiple_requested_results_returns_unsupported_error() -> None:
     result = gmail_read_specific_email_tool(
         arguments={"requested_result_count": 2},
@@ -189,11 +211,10 @@ def test_multiple_requested_results_returns_unsupported_error() -> None:
     )
 
     assert result == {
-        "read": False,
+        "success": False,
         "reason": "multiple_email_read_not_supported",
         "message": "Only one complete email can be read per request. "
         "Ask the user which email they want to read first.",
-        "requested_result_count": 2,
         "emails": [],
         "returned_count": 0,
         "has_more": False,
@@ -220,10 +241,9 @@ def test_selected_position_out_of_range_returns_error(get_payload_mock: Mock, de
 
 
     assert result == {
-                "read": False,
+                "success": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected email position is out of range.",
-                "available_positions": len(emails),
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,

@@ -96,7 +96,8 @@ def fetch_sent_gmail_messages(access_token: str, max_results: int):
     return ({
         "emails": sent_message_list,
         "has_more": has_more,
-        "returned_count": len(sent_message_list)
+        "returned_count": len(sent_message_list),
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     })
 
 
@@ -146,5 +147,6 @@ def fetch_specific_sent_gmail_messages(access_token: str, max_results: int, quer
         "emails": sent_message_list,
         "has_more": has_more,
         "returned_count": len(sent_message_list),
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     }
 

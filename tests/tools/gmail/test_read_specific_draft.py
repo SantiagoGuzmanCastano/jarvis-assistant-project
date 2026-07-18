@@ -3,6 +3,7 @@
 
 from unittest.mock import Mock, patch
 
+from app.schemas.tools.gmail_results import ReadDraftResult
 from app.tools.external.gmail_tools import gmail_read_specific_draft_tool
 
 
@@ -81,10 +82,11 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
         conversation_id=11,
     )
 
-    assert result["read"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_matching_drafts"
     assert result["returned_count"] == 3
     assert [draft["position"] for draft in result["matching_drafts"]] == [1, 2, 3]
+    assert ReadDraftResult.model_validate(result).success is False
 
     build_query_mock.assert_called_once()
 
@@ -158,7 +160,7 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
     )
 
     assert result == {
-        "read": True,
+        "success": True,
         "drafts": [drafts[1]],
         "returned_count": 1,
         "has_more": False,
@@ -192,7 +194,7 @@ def test_selected_position_without_state_returns_error(
     )
 
     assert result == {
-        "read": False,
+        "success": False,
         "reason": "missing_tool_state",
         "message": "No previous draft selection was found.",
         "drafts": [],
@@ -216,10 +218,9 @@ def test_multiple_requested_results_returns_unsupported_error() -> None:
     )
 
     assert result == {
-        "read": False,
+        "success": False,
         "reason": "multiple_draft_read_not_supported",
         "message": "Only one complete draft can be read per request.",
-        "requested_result_count": 2,
         "drafts": [],
         "returned_count": 0,
         "has_more": False,
@@ -266,10 +267,9 @@ def test_selected_position_out_of_range_returns_error(
     )
 
     assert result == {
-        "read": False,
+        "success": False,
         "reason": "invalid_selected_result_position",
         "message": "Selected draft position is out of range.",
-        "available_positions": 2,
         "drafts": [],
         "returned_count": 0,
         "has_more": False,

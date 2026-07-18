@@ -207,7 +207,8 @@ def fetch_unread_gmail_messages(access_token:str, max_results: int, query: str):
     return ({
         "emails": message_list,
         "has_more": has_more,
-        "returned_count": len(message_list)
+        "returned_count": len(message_list),
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     })
 
     # [
@@ -248,6 +249,7 @@ def fetch_latest_gmail_messages(access_token:str, max_results: int):
         "emails": message_list,
         "has_more": has_more,
         "returned_count": len(message_list),
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     }
 
 # endregion
@@ -306,7 +308,8 @@ def fetch_specific_gmail_message_format_FSD(access_token:str, max_results: int, 
     return ({
         "emails": message_list,
         "has_more": has_more,
-        "returned_count": len(message_list)
+        "returned_count": len(message_list),
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     })
 
 # [

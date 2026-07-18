@@ -280,6 +280,7 @@ def fetch_specific_gmail_drafts(access_token: str,max_results: int,query: str,) 
         "drafts": drafts,
         "returned_count": len(drafts),
         "has_more": has_more,
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     }
 
 
@@ -314,6 +315,7 @@ def fetch_specific_gmail_drafts_full(access_token: str,max_results: int,query: s
         "drafts": drafts,
         "returned_count": len(drafts),
         "has_more": has_more,
+        "next_page_token": data.get("nextPageToken") if has_more else None,
     }
 
 

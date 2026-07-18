@@ -20,13 +20,14 @@ def test_get_unread_emails_uses_email_search_arguments(
     session = Mock()
     build_query_mock.return_value = "is:unread from:ana@example.com"
     access_token_mock.return_value = "access-token"
-    fetch_unread_mock.return_value = [{"id": "message-1"}]
-    format_messages_mock.return_value = {
-        "emails": [{"message_id": "message-1", "subject": "Factura"}],
-        "returned_count": 1,
+    fetch_unread_mock.return_value = {
+        "emails": [{"id": "message-1"}],
         "has_more": False,
         "next_page_token": None,
     }
+    format_messages_mock.return_value = [
+        {"sender": "ana@example.com", "subject": "Factura", "date": "", "snippet": ""},
+    ]
 
     result = get_unread_emails_tool(
         arguments={
@@ -66,12 +67,15 @@ def test_get_latest_emails_uses_max_results_arguments(
 ) -> None:
     session = Mock()
     access_token_mock.return_value = "access-token"
-    fetch_latest_mock.return_value = [{"id": "message-1"}]
-    format_messages_mock.return_value = {
-        "emails": [{"message_id": "message-1", "subject": "Factura"}],
+    fetch_latest_mock.return_value = {
+        "emails": [{"id": "message-1"}],
         "returned_count": 1,
-        "has_more": False,
+        "has_more": True,
+        "next_page_token": "next-page-token",
     }
+    format_messages_mock.return_value = [
+        {"sender": "ana@example.com", "subject": "Factura", "date": "", "snippet": ""},
+    ]
 
     result = get_latest_emails_tool(
         arguments={"max_results": 5},
@@ -84,6 +88,7 @@ def test_get_latest_emails_uses_max_results_arguments(
         max_results=5,
     )
     assert result["returned_count"] == 1
+    assert result["next_page_token"] == "next-page-token"
 
 
 @patch("app.tools.external.gmail_tools.fetch_specific_gmail_message_format_FSD")

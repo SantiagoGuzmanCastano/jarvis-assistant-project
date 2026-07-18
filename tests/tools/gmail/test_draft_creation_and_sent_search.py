@@ -15,7 +15,7 @@ def test_create_email_draft_uses_complete_create_draft_arguments(
 ) -> None:
     session = Mock()
     access_token_mock.return_value = "access-token"
-    create_draft_mock.return_value = {"created": True, "draft_id": "draft-1"}
+    create_draft_mock.return_value = {"id": "draft-1"}
 
     result = gmail_create_email_draft_tool(
         arguments={
@@ -33,7 +33,14 @@ def test_create_email_draft_uses_complete_create_draft_arguments(
         subject="Factura",
         body="Adjunto la factura.",
     )
-    assert result == {"created": True, "draft_id": "draft-1"}
+    assert result == {
+        "success": True,
+        "draft": {
+            "draft_id": "draft-1",
+            "recipient_email": "lina@example.com",
+            "subject": "Factura",
+        },
+    }
 
 
 @patch("app.tools.external.gmail_tools.create_gmail_draft")
@@ -43,6 +50,7 @@ def test_create_multiple_email_drafts_allows_partial_failures(
     create_draft_mock: Mock,
 ) -> None:
     access_token_mock.return_value = "access-token"
+    create_draft_mock.return_value = {"id": "draft-1"}
 
     result = gmail_create_multiple_email_drafts_tool(
         arguments={
@@ -64,6 +72,9 @@ def test_create_multiple_email_drafts_allows_partial_failures(
 
     assert result["created_count"] == 1
     assert result["failed_count"] == 1
+    assert result["success"] is False
+    assert result["reason"] == "partial_failure"
+    assert result["results"][0]["draft"]["draft_id"] == "draft-1"
     assert result["results"][1]["missing_fields"] == ["recipient_email", "body"]
     create_draft_mock.assert_called_once()
 

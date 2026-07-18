@@ -40,12 +40,13 @@ def test_recent_position_returns_the_requested_email(
     )
 
     assert result == {
-        "found": True,
+        "success": True,
         "emails": [
             {
-                "from": "ana@example.com",
+                "sender": "ana@example.com",
                 "subject": "Factura febrero",
                 "date": "Mon, 1 Jun 2026 10:00:00 -0500",
+                "snippet": "Segundo correo",
                 "body": "Segundo correo",
             }
         ],

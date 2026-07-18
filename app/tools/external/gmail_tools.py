@@ -16,7 +16,7 @@ from typing import Any
 
 def format_gmail_message_metadata(
     message_data: list[dict[str, Any]] | dict[str, Any],
-) -> list[dict[str, Any]] | dict[str, Any]:
+) -> list[dict[str, Any]]:
     if isinstance(message_data, dict):
         raw_emails = message_data.get("emails", [])
         emails = raw_emails if isinstance(raw_emails, list) else []
@@ -45,18 +45,11 @@ def format_gmail_message_metadata(
             date_value = local_datetime.isoformat()
 
         formatted_emails.append({
-            "from": header_values.get("from"),
-            "subject": header_values.get("subject"),
-            "date": date_value,
-            "snippet": message.get("snippet"),
+            "sender": header_values.get("from", ""),
+            "subject": header_values.get("subject", ""),
+            "date": date_value or "",
+            "snippet": message.get("snippet", ""),
         })
-
-    if isinstance(message_data, dict):
-        return {
-            **message_data,
-            "emails": formatted_emails,
-            "returned_count": len(formatted_emails),
-        }
 
     return formatted_emails
 
@@ -79,32 +72,13 @@ def get_unread_emails_tool(arguments: dict, user_id: int, session: Session):
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
     message_list = fetch_unread_gmail_messages(access_token=access_token,max_results=max_results,query=query)
 
-    message_list_output = format_gmail_message_metadata(message_data=message_list)
-    print("\nCorreos encontrados de ese rango de fecha:")
-    if isinstance(message_list_output, dict):
-        print(message_list_output.get("returned_count", 0))
-    else:
-        print(len(message_list_output))
-
-    if isinstance(message_list_output, dict):
-        emails = message_list_output.get("emails", [])
-
-        print(message_list_output.get("estimated_total"))
-        return {
-            "emails": emails,
-            "returned_count": message_list_output.get(
-                "returned_count",
-                len(emails),
-            ),
-            "has_more": message_list_output.get("has_more", False),
-            "next_page_token": message_list_output.get("next_page_token"),
-        }
+    formatted_emails = format_gmail_message_metadata(message_data=message_list)
 
     return {
-        "emails": message_list_output,
-        "returned_count": len(message_list_output),
-        "has_more": False,
-        "next_page_token": None,
+        "emails": formatted_emails,
+        "returned_count": len(formatted_emails),
+        "has_more": message_list.get("has_more", False),
+        "next_page_token": message_list.get("next_page_token"),
     }
 # endregion
 
@@ -147,15 +121,11 @@ def get_latest_emails_tool(arguments: dict, user_id: int, session: Session):
     # ]
 
 
-    message_list_output = format_gmail_message_metadata(message_data=message_list)
-
-    if isinstance(message_list_output, dict):
-        return message_list_output
-
     return {
-        "emails": message_list_output,
-        "has_more": False,
-        "returned_count": len(message_list_output),
+        "emails": format_gmail_message_metadata(message_data=message_list),
+        "has_more": message_list.get("has_more", False),
+        "returned_count": message_list.get("returned_count", 0),
+        "next_page_token": message_list.get("next_page_token"),
     }
 
 # endregion
@@ -232,15 +202,23 @@ def gmail_create_email_draft_tool(arguments:dict, user_id: int, session: Session
     #si missing fields tiene algo, si es not empty
     if missing_fields:
         return {
-            "created": False,
+            "success": False,
             "reason": "missing_required_fields",
+            "message": "Recipient email, subject, and body are required.",
             "missing_fields": missing_fields,
         }
 
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
     new_draft_message = create_gmail_draft(access_token=access_token, body=body, subject=subject, recipient_email=recipient_email)
-    return new_draft_message
+    return {
+        "success": True,
+        "draft": {
+            "draft_id": new_draft_message["id"],
+            "recipient_email": recipient_email,
+            "subject": subject,
+        },
+    }
 
 
 def gmail_create_multiple_email_drafts_tool(arguments: dict, user_id: int, session: Session):
@@ -252,10 +230,12 @@ def gmail_create_multiple_email_drafts_tool(arguments: dict, user_id: int, sessi
 
     if not isinstance(to_create_list, list):
         return {
+            "success": False,
             "created_count": 0,
             "failed_count": 0,
             "reason": "invalid_to_create_list",
-            "message": "to_create_list must be a list."
+            "message": "to_create_list must be a list.",
+            "results": [],
         }
 
     results = []
@@ -281,38 +261,43 @@ def gmail_create_multiple_email_drafts_tool(arguments: dict, user_id: int, sessi
         if missing_fields:
             failed_count +=1
             results.append({
-                "created": False,
+                "success": False,
                 "reason": "missing_required_fields",
+                "message": "Draft is missing required fields.",
                 "missing_fields": missing_fields,
-                "failed_email_fields":
-                    {
-                        "recipient_email": recipient_email,
-                        "subject": subject,
-                        "body": body
-
-                    }
                 })
             continue
 
-        create_gmail_draft(access_token=access_token, body=body, subject=subject, recipient_email=recipient_email)
+        new_draft_message = create_gmail_draft(
+            access_token=access_token,
+            body=body,
+            subject=subject,
+            recipient_email=recipient_email,
+        )
         created_count +=1
 
         results.append({
-                "created": True,
-                "created_email_fields":
-                    {
-                        "recipient_email": recipient_email,
-                        "subject": subject,
-                        "body":body
-
-                    }
+                "success": True,
+                "draft": {
+                    "draft_id": new_draft_message["id"],
+                    "recipient_email": recipient_email,
+                    "subject": subject,
+                },
                 })
 
-    return ({
+    success = failed_count == 0
+    partial_failure = created_count > 0 and failed_count > 0
+
+    return {
+        "success": success,
+        "reason": "partial_failure" if partial_failure else (
+            "all_drafts_failed" if not success else None
+        ),
+        "message": "Some drafts could not be created." if partial_failure else None,
         "created_count": created_count,
         "failed_count": failed_count,
         "results": results
-    })
+    }
     # {
     #   "needs_tool": true,
     #   "tool_name": "read_unread_emails",
@@ -396,27 +381,27 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
     requested_result_count = arguments.get("requested_result_count", 1)
 
     if requested_result_count is None:
-        return ({
-            "sent": False,
+        return {
+            "success": False,
             "reason": "multiple_draft_send_not_supported",
-            "requested_result_count": None
-        })
+            "message": "Only one draft can be sent per request.",
+        }
 
     requested_result_count = int(requested_result_count)
 
     if requested_result_count > 1:
-        return ({
-            "sent": False,
+        return {
+            "success": False,
             "reason": "multiple_draft_send_not_supported",
-            "requested_result_count": requested_result_count
-        })
+            "message": "Only one draft can be sent per request.",
+        }
 
     if not requested_result_count:
-        return ({
-            "sent": False,
+        return {
+            "success": False,
             "reason": "incorrect_draft_send",
-            "requested_result_count": 0
-        })
+            "message": "A draft to send is required.",
+        }
 
     if selected_result_position is not None:
         selected_result_position = int(selected_result_position)
@@ -429,18 +414,17 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
 
         if tool_payload is None:
             return {
-                "sent": False,
+                "success": False,
                 "reason": "missing_tool_state",
                 "message": "No previous draft selection was found."
             }
 
         if selected_result_position < 1 or selected_result_position > len(tool_payload): # type: ignore # noqa: F821
-            return ({
-                "sent": False,
+            return {
+                "success": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected draft position is out of range",
-                "available_drafts": tool_payload # type: ignore  # noqa: F821
-            })
+            }
 
         selected_draft = tool_payload[selected_result_position-1] # pyright: ignore[reportUnboundVariable]
         print("\nDRAFT SELECTED ->")
@@ -449,11 +433,10 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
 
         send_gmail_draft(draft_id=tool_payload[selected_result_position-1]["draft_id"], access_token=access_token) # type: ignore
         delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
-        return ({
-            "sent": True,
-            "draft_id":selected_draft["draft_id"],  # type: ignore
-            "selected_draft": selected_draft,  # type: ignore
-        })
+        return {
+            "success": True,
+            "draft": selected_draft,
+        }
 
 
     #si es un correo reciente, ultimo, penultimo
@@ -475,10 +458,9 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         # 1 = penultimo borrador
         if recent_draft_index < 0 or recent_draft_index >= len(last_drafted_emails):
             return {
-                "sent": False,
+                "success": False,
                 "reason": "invalid_recent_result_position",
                 "message": "Requested recent draft position is out of range.",
-                "available_drafts": last_drafted_emails,
             }
 
         selected_draft = last_drafted_emails[recent_draft_index]
@@ -486,11 +468,13 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         print(selected_draft)
 
         send_gmail_draft(draft_id=selected_draft["id"], access_token=access_token)
-        return ({
-            "sent": True,
-            "draft_id":selected_draft["id"],
-            "selected_draft": selected_draft,
-            })
+        return {
+            "success": True,
+            "draft": format_gmail_draft_candidate(
+                draft=selected_draft,
+                position=recent_draft_position,
+            ),
+        }
 
 
     max_results = min(
@@ -504,7 +488,7 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
 
     if not recipient_hint and not search_keywords and not start_date and not end_date:
         return {
-            "sent": False,
+            "success": False,
             "reason": "missing_draft_search_fields",
             "message": "Missing information required to identify the draft."
         }
@@ -536,11 +520,11 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
         raise ValueError("Draft search failed")
 
     if len(emails_found) == 0:
-        return ({
-            "sent": False,
+        return {
+            "success": False,
             "reason": "no_matching_draft",
-            "message": "No matching draft was found."
-        })
+            "message": "No matching draft was found.",
+        }
 
     if len(emails_found) > 1:
         delete_tool_state(user_id=user_id,conversation_id=conversation_id, session=session)
@@ -550,24 +534,23 @@ def gmail_send_drafted_email_tool(arguments:dict, user_id: int, session: Session
             print("-----------------------------")
         create_tool_state(user_id=user_id, conversation_id=conversation_id, payload=emails_found, session=session)
 
-        return ({
-            "sent": False,
+        return {
+            "success": False,
             "reason": "multiple_matching_drafts",
             "message": "Multiple matching drafts found, please specify which draft you want to send",
-            "matching_drafts_found": emails_found,
+            "matching_drafts": emails_found,
             "returned_count": drafts_found.get("returned_count", len(emails_found)),
             "has_more": drafts_found.get("has_more", False),
-        })
+        }
 
     if len(emails_found) == 1:
     #si la busqueda fue especifica y se encontro uno correo.
         selected_draft = emails_found[0]
         send_gmail_draft(draft_id=selected_draft["draft_id"], access_token=access_token)
-        return ({
-            "sent": True,
-            "draft_id":selected_draft["draft_id"],
-            "selected_draft": selected_draft,
-            })
+        return {
+            "success": True,
+            "draft": selected_draft,
+        }
 
 
 def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dict, conversation_id: int):
@@ -1332,7 +1315,7 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
 
         if recent_result_position < 1:
             return {
-                "found": False,
+                "success": False,
                 "reason": "invalid_recent_result_position",
                 "emails": [],
                 "returned_count": 0,
@@ -1346,7 +1329,7 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
 
         if recent_result_position > len(latest_emails):
             return {
-                "found": False,
+                "success": False,
                 "reason": "recent_result_position_out_of_range",
                 "emails": [],
                 "returned_count": 0,
@@ -1358,7 +1341,7 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
         )
 
         return {
-            "found": True,
+            "success": True,
             "emails": [email],
             "returned_count": 1,
             "has_more": False,
@@ -1378,7 +1361,7 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
         emails_list.append(format_gmail_email(email_requested=email))
 
     return {
-        "found": bool(emails_list),
+        "success": bool(emails_list),
         "emails": emails_list,
         "returned_count": len(emails_list),
         "has_more": False,
@@ -1430,9 +1413,10 @@ def format_gmail_email(email_requested: dict):
         body = email_requested.get("snippet", "")
 
     return {
-        "from": who_from,
+        "sender": who_from,
         "subject": subject,
         "date": date,
+        "snippet": email_requested.get("snippet", ""),
         "body": body,
     }
 
@@ -1481,7 +1465,7 @@ def format_gmail_email_candidates(emails: list[dict],) -> list[dict]:
 
         candidates.append({
             "position": position,
-            "from": headers.get("from", ""),
+            "sender": headers.get("from", ""),
             "subject": headers.get("subject", ""),
             "date": date_value,
             "snippet": email.get("snippet", ""),
@@ -1505,13 +1489,12 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
 
     if requested_result_count > 1:
         return {
-            "read": False,
+            "success": False,
             "reason": "multiple_email_read_not_supported",
             "message": (
                 "Only one complete email can be read per request. "
                 "Ask the user which email they want to read first."
             ),
-            "requested_result_count": requested_result_count,
             "emails": [],
             "returned_count": 0,
             "has_more": False,
@@ -1524,7 +1507,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
 
         if not isinstance(tool_payload, dict) or "emails" not in tool_payload:
             return {
-                "read": False,
+                "success": False,
                 "reason": "missing_tool_state",
                 "message": "No previous email selection was found.",
                 "emails": [],
@@ -1539,10 +1522,9 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
             or selected_result_position > len(emails_to_choose)
         ):
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected email position is out of range.",
-                "available_positions": len(emails_to_choose),
                 "emails": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1553,7 +1535,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
         delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
 
         return {
-            "read": True,
+            "success": True,
             "emails": [formatted_email],
             "returned_count": 1,
             "has_more": False,
@@ -1568,7 +1550,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
 
     if emails_found is None:
         return {
-            "read": False,
+            "success": False,
             "reason": "email_not_found",
             "message": "No email matched the provided query.",
             "emails": [],
@@ -1603,7 +1585,7 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
         )
 
         return {
-            "read": False,
+            "success": False,
             "reason": "multiple_matching_emails",
             "message": "Multiple emails matched the query. Please specify which one you want to read.",
             "matching_emails": matching_email_summaries,
@@ -1615,11 +1597,20 @@ def gmail_read_specific_email_tool(arguments: dict, session: Session, user_id: i
         formatted_email = format_gmail_email(email_requested=emails_found[0])
 
         return {
-            "read": True,
+            "success": True,
             "emails": [formatted_email],
             "returned_count": 1,
             "has_more": False,
         }
+
+    return {
+        "success": False,
+        "reason": "email_not_found",
+        "message": "No email matched the provided query.",
+        "emails": [],
+        "returned_count": 0,
+        "has_more": False,
+    }
 
 
 def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: int, conversation_id: int,
@@ -1633,7 +1624,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         requested_result_count = int(requested_result_count)
     except (TypeError, ValueError):
         return {
-            "read": False,
+            "success": False,
             "reason": "invalid_requested_result_count",
             "message": "Requested result count must be a valid number.",
             "drafts": [],
@@ -1643,10 +1634,9 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
     if requested_result_count != 1:
         return {
-            "read": False,
+            "success": False,
             "reason": "multiple_draft_read_not_supported",
             "message": "Only one complete draft can be read per request.",
-            "requested_result_count": requested_result_count,
             "drafts": [],
             "returned_count": 0,
             "has_more": False,
@@ -1657,7 +1647,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             recent_result_position = int(recent_result_position)
         except (TypeError, ValueError):
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_recent_result_position",
                 "message": "Recent draft position must be a valid number.",
                 "drafts": [],
@@ -1667,7 +1657,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
         if recent_result_position < 1:
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_recent_result_position",
                 "message": "Recent draft position must be at least 1.",
                 "drafts": [],
@@ -1688,10 +1678,9 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
         if recent_result_position > len(recent_drafts):
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_recent_result_position",
                 "message": "Requested recent draft position is out of range.",
-                "available_drafts": len(recent_drafts),
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1706,7 +1695,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         )
 
         return {
-            "read": True,
+            "success": True,
             "drafts": [selected_draft],
             "returned_count": 1,
             "has_more": False,
@@ -1717,7 +1706,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             selected_result_position = int(selected_result_position)
         except (TypeError, ValueError):
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected draft position must be a valid number.",
                 "drafts": [],
@@ -1737,7 +1726,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             or not isinstance(tool_payload.get("drafts"), list)
         ):
             return {
-                "read": False,
+                "success": False,
                 "reason": "missing_tool_state",
                 "message": "No previous draft selection was found.",
                 "drafts": [],
@@ -1752,10 +1741,9 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             or selected_result_position > len(drafts_to_choose)
         ):
             return {
-                "read": False,
+                "success": False,
                 "reason": "invalid_selected_result_position",
                 "message": "Selected draft position is out of range.",
-                "available_positions": len(drafts_to_choose),
                 "drafts": [],
                 "returned_count": 0,
                 "has_more": False,
@@ -1769,7 +1757,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         )
 
         return {
-            "read": True,
+            "success": True,
             "drafts": [selected_draft],
             "returned_count": 1,
             "has_more": False,
@@ -1791,7 +1779,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
         if not isinstance(search_arguments, dict):
             return {
-                "read": False,
+                "success": False,
                 "reason": "missing_previous_draft_search",
                 "message": "No previous draft search is available to expand.",
                 "drafts": [],
@@ -1813,7 +1801,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
     if not recipient_hint and not search_keywords and not start_date and not end_date:
         return {
-            "read": False,
+            "success": False,
             "reason": "missing_draft_search_fields",
             "message": "Missing information required to identify the draft.",
             "drafts": [],
@@ -1847,7 +1835,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
     if not drafts_found:
         return {
-            "read": False,
+            "success": False,
             "reason": "draft_not_found",
             "message": "No draft matched the provided query.",
             "drafts": [],
@@ -1857,7 +1845,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
 
     if len(drafts_found) == 1:
         return {
-            "read": True,
+            "success": True,
             "drafts": [drafts_found[0]],
             "returned_count": 1,
             "has_more": False,
@@ -1866,6 +1854,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
     matching_drafts = [
         {
             "position": draft["position"],
+            "draft_id": draft["draft_id"],
             "to": draft["to"],
             "subject": draft["subject"],
             "date": draft["date"],
@@ -1896,7 +1885,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
     )
 
     return {
-        "read": False,
+        "success": False,
         "reason": "multiple_matching_drafts",
         "message": "Multiple drafts matched the query. Please specify which one you want to read.",
         "matching_drafts": matching_drafts,
