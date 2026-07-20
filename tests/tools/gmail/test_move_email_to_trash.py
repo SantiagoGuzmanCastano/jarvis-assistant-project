@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import gmail_move_email_to_trash_tool
+from app.tools.external.gmail.received_email_actions import gmail_move_email_to_trash_tool
 
 
 def _received_email(message_id: str, subject: str) -> dict:
@@ -13,10 +13,10 @@ def _received_email(message_id: str, subject: str) -> dict:
     }
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.move_gmail_message_to_trash")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_actions.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_actions.move_gmail_message_to_trash")
+@patch("app.tools.external.gmail.received_email_actions.get_tool_payload")
+@patch("app.tools.external.gmail.received_email_actions.get_valid_google_access_token")
 def test_selected_position_moves_exactly_one_received_email_to_trash(
     access_token_mock: Mock,
     get_payload_mock: Mock,
@@ -41,8 +41,8 @@ def test_selected_position_moves_exactly_one_received_email_to_trash(
         conversation_id=11,
     )
 
-    assert result["trashed"] is True
-    assert result["emails"][0]["subject"] == "Factura febrero"
+    assert result["success"] is True
+    assert result["email"]["subject"] == "Factura febrero"
     move_to_trash_mock.assert_called_once_with(
         access_token="access-token",
         message_id="message-2",
@@ -62,13 +62,13 @@ def test_multiple_received_email_trash_request_is_rejected() -> None:
         conversation_id=11,
     )
 
-    assert result["trashed"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_email_trash_not_supported"
 
 
-@patch("app.tools.external.gmail_tools.fetch_latest_gmail_messages")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_actions.fetch_latest_gmail_messages")
+@patch("app.tools.external.gmail.received_email_actions.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_actions.get_valid_google_access_token")
 def test_recent_result_position_uses_received_email_flow(
     access_token_mock: Mock,
     delete_state_mock: Mock,

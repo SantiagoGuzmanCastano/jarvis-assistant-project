@@ -1,16 +1,16 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import (
+from app.tools.external.gmail.received_email_listings import (
     get_latest_emails_tool,
     get_unread_emails_tool,
     gmail_search_email_message_tool,
 )
 
 
-@patch("app.tools.external.gmail_tools.format_gmail_message_metadata")
-@patch("app.tools.external.gmail_tools.fetch_unread_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query")
+@patch("app.tools.external.gmail.received_email_listings.format_gmail_message_metadata")
+@patch("app.tools.external.gmail.received_email_listings.fetch_unread_gmail_messages")
+@patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_listings.build_gmail_query")
 def test_get_unread_emails_uses_email_search_arguments(
     build_query_mock: Mock,
     access_token_mock: Mock,
@@ -57,9 +57,9 @@ def test_get_unread_emails_uses_email_search_arguments(
     assert result["returned_count"] == 1
 
 
-@patch("app.tools.external.gmail_tools.format_gmail_message_metadata")
-@patch("app.tools.external.gmail_tools.fetch_latest_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_listings.format_gmail_message_metadata")
+@patch("app.tools.external.gmail.received_email_listings.fetch_latest_gmail_messages")
+@patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
 def test_get_latest_emails_uses_max_results_arguments(
     access_token_mock: Mock,
     fetch_latest_mock: Mock,
@@ -91,9 +91,9 @@ def test_get_latest_emails_uses_max_results_arguments(
     assert result["next_page_token"] == "next-page-token"
 
 
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_message_format_FSD")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query")
+@patch("app.tools.external.gmail.received_email_listings.fetch_specific_gmail_message_format_FSD")
+@patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_listings.build_gmail_query")
 def test_search_email_message_uses_email_search_arguments(
     build_query_mock: Mock,
     access_token_mock: Mock,

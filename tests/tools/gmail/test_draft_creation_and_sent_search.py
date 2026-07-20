@@ -1,14 +1,14 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import (
+from app.tools.external.gmail.draft_creation import (
     gmail_create_email_draft_tool,
     gmail_create_multiple_email_drafts_tool,
-    gmail_search_sent_emails_tool,
 )
+from app.tools.external.gmail.sent_email_listings import gmail_search_sent_emails_tool
 
 
-@patch("app.tools.external.gmail_tools.create_gmail_draft")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_creation.create_gmail_draft")
+@patch("app.tools.external.gmail.draft_creation.get_valid_google_access_token")
 def test_create_email_draft_uses_complete_create_draft_arguments(
     access_token_mock: Mock,
     create_draft_mock: Mock,
@@ -43,8 +43,8 @@ def test_create_email_draft_uses_complete_create_draft_arguments(
     }
 
 
-@patch("app.tools.external.gmail_tools.create_gmail_draft")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_creation.create_gmail_draft")
+@patch("app.tools.external.gmail.draft_creation.get_valid_google_access_token")
 def test_create_multiple_email_drafts_allows_partial_failures(
     access_token_mock: Mock,
     create_draft_mock: Mock,
@@ -79,9 +79,9 @@ def test_create_multiple_email_drafts_allows_partial_failures(
     create_draft_mock.assert_called_once()
 
 
-@patch("app.tools.external.gmail_tools.fetch_specific_sent_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query")
+@patch("app.tools.external.gmail.sent_email_listings.fetch_specific_sent_gmail_messages")
+@patch("app.tools.external.gmail.sent_email_listings.get_valid_google_access_token")
+@patch("app.tools.external.gmail.sent_email_listings.build_gmail_query")
 def test_search_sent_emails_uses_recipient_search_arguments(
     build_query_mock: Mock,
     access_token_mock: Mock,

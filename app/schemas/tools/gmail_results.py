@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class ReceivedEmailSummary(BaseModel):
@@ -75,19 +75,6 @@ class ToolActionResult(BaseModel):
     reason: str | None = None
     message: str | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_success(cls, value: object) -> object:
-        if not isinstance(value, dict) or "success" in value:
-            return value
-
-        normalized = value.copy()
-        for legacy_field in ("sent", "updated", "created", "trashed", "deleted", "read", "found"):
-            if legacy_field in normalized:
-                normalized["success"] = normalized[legacy_field]
-                break
-        return normalized
-
 
 class EmailSelectionActionResult(ToolActionResult):
     matching_emails: list[ReceivedEmailSummary] = Field(default_factory=list)
@@ -96,7 +83,7 @@ class EmailSelectionActionResult(ToolActionResult):
 
 
 class DraftSelectionActionResult(ToolActionResult):
-    matching_drafts: list[DraftSummary] = Field(default_factory=list)
+    matching_drafts: list[DraftSummary] | None = None
     returned_count: int = 0
     has_more: bool = False
 
@@ -120,45 +107,14 @@ class CreateMultipleDraftsResult(ToolActionResult):
 class SendDraftResult(DraftSelectionActionResult):
     draft: DraftSummary | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_send_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        normalized.setdefault("draft", normalized.get("selected_draft"))
-        normalized.setdefault("matching_drafts", normalized.get("matching_drafts_found", []))
-        return normalized
-
 
 class UpdateDraftResult(DraftSelectionActionResult):
     draft: DraftDetails | None = None
     updated_fields: dict[str, bool] = Field(default_factory=dict)
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_update_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        normalized.setdefault("draft", normalized.get("selected_draft"))
-        normalized.setdefault("matching_drafts", normalized.get("matching_drafts_found", []))
-        return normalized
-
 
 class DeleteDraftResult(DraftSelectionActionResult):
     draft: DraftSummary | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_delete_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        drafts = normalized.get("drafts", [])
-        if normalized.get("success") or normalized.get("deleted"):
-            normalized.setdefault("draft", drafts[0] if drafts else None)
-        return normalized
 
 
 class ReadEmailResult(EmailSelectionActionResult):
@@ -172,17 +128,6 @@ class ReadDraftResult(DraftSelectionActionResult):
 class ReceivedEmailTrashResult(EmailSelectionActionResult):
     email: ReceivedEmailSummary | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_trash_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        emails = normalized.get("emails", [])
-        if normalized.get("success") or normalized.get("trashed"):
-            normalized.setdefault("email", emails[0] if emails else None)
-        return normalized
-
 
 class SentEmailTrashResult(ToolActionResult):
     email: SentEmailSummary | None = None
@@ -190,36 +135,7 @@ class SentEmailTrashResult(ToolActionResult):
     returned_count: int = 0
     has_more: bool = False
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_sent_trash_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        emails = normalized.get("emails", [])
-        if normalized.get("success") or normalized.get("trashed"):
-            normalized.setdefault("email", emails[0] if emails else None)
-        return normalized
 
 
 class ReplyDraftResult(EmailSelectionActionResult):
     draft: ReplyDraftReference | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_reply_result(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        normalized = value.copy()
-        if normalized.get("created") and "draft" not in normalized:
-            normalized["draft"] = {
-                key: normalized[key]
-                for key in (
-                    "draft_id",
-                    "message_id",
-                    "thread_id",
-                    "recipient_email",
-                    "subject",
-                )
-            }
-        return normalized

@@ -1,13 +1,13 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import gmail_update_email_draft_tool
+from app.tools.external.gmail.draft_updates import gmail_update_email_draft_tool
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.update_gmail_draft")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_updates.create_tool_state")
+@patch("app.tools.external.gmail.draft_updates.delete_tool_state")
+@patch("app.tools.external.gmail.draft_updates.update_gmail_draft")
+@patch("app.tools.external.gmail.draft_updates.get_tool_payload")
+@patch("app.tools.external.gmail.draft_updates.get_valid_google_access_token")
 def test_active_draft_update_preserves_unspecified_fields(
     access_token_mock: Mock,
     get_payload_mock: Mock,
@@ -35,10 +35,10 @@ def test_active_draft_update_preserves_unspecified_fields(
         conversation_id=11,
     )
 
-    assert result["updated"] is True
-    assert result["selected_draft"]["to"] == "lina@example.com"
-    assert result["selected_draft"]["subject"] == "Factura enero corregida"
-    assert result["selected_draft"]["body"] == "Contenido original."
+    assert result["success"] is True
+    assert result["draft"]["to"] == "lina@example.com"
+    assert result["draft"]["subject"] == "Factura enero corregida"
+    assert result["draft"]["body"] == "Contenido original."
     update_draft_mock.assert_called_once_with(
         access_token="access-token",
         body="Contenido original.",
@@ -46,19 +46,26 @@ def test_active_draft_update_preserves_unspecified_fields(
         recipient_email="lina@example.com",
         draft_id="draft-1",
     )
-    delete_state_mock.assert_called_once_with(
+    delete_state_mock.assert_not_called()
+    create_state_mock.assert_called_once_with(
         user_id=7,
         conversation_id=11,
         session=session,
+        state_type="gmail_update_draft_active",
+        payload={
+            "active_draft": {
+                **active_draft,
+                "subject": "Factura enero corregida",
+            }
+        },
     )
-    create_state_mock.assert_called_once()
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts_full")
-@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="to:lina@example.com")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_updates.create_tool_state")
+@patch("app.tools.external.gmail.draft_updates.delete_tool_state")
+@patch("app.tools.external.gmail.draft_updates.fetch_specific_gmail_drafts_full")
+@patch("app.tools.external.gmail.draft_updates.build_gmail_query", return_value="to:lina@example.com")
+@patch("app.tools.external.gmail.draft_updates.get_valid_google_access_token")
 def test_multiple_draft_update_search_saves_selection_state(
     access_token_mock: Mock,
     build_query_mock: Mock,
@@ -85,12 +92,13 @@ def test_multiple_draft_update_search_saves_selection_state(
         conversation_id=11,
     )
 
-    assert result["updated"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_matching_drafts"
     create_state_mock.assert_called_once_with(
         user_id=7,
         conversation_id=11,
         session=session,
+        state_type="gmail_update_draft_selection",
         payload={
             "drafts": drafts,
             "new_recipient_email": "",

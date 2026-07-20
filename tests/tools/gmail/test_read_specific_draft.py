@@ -4,7 +4,7 @@
 from unittest.mock import Mock, patch
 
 from app.schemas.tools.gmail_results import ReadDraftResult
-from app.tools.external.gmail_tools import gmail_read_specific_draft_tool
+from app.tools.external.gmail.draft_reading import gmail_read_specific_draft_tool
 
 
 def _gmail_draft(subject: str, date: str, snippet: str, body: str, draft_id: str, to: str, position: int) -> dict:
@@ -20,11 +20,11 @@ def _gmail_draft(subject: str, date: str, snippet: str, body: str, draft_id: str
         }
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts_full")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query",return_value="to:lina@example.com factura",)
+@patch("app.tools.external.gmail.draft_reading.create_tool_state")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.fetch_specific_gmail_drafts_full")
+@patch("app.tools.external.gmail.draft_reading.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_reading.build_gmail_query",return_value="to:lina@example.com factura",)
 def test_search_with_multiple_matches_saves_state_and_requests_selection(build_query_mock: Mock, access_token_mock: Mock, fetch_drafts_mock: Mock, delete_state_mock: Mock, create_state_mock: Mock,):
 
     session = Mock()
@@ -96,13 +96,13 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
         query = "to:lina@example.com factura"
     )
 
-    assert delete_state_mock.call_count == 2
+    assert delete_state_mock.call_count == 1
     create_state_mock.assert_called_once_with(
     user_id=7,
     conversation_id=11,
     session=session,
+    state_type="gmail_read_specific_draft_selection",
     payload={
-        "state_type": "gmail_read_specific_draft_selection",
         "drafts": drafts,
         "search_arguments": {
             "start_date": "2026-01-01",
@@ -114,8 +114,8 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
 )
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.get_tool_payload")
 def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
     session = Mock()
     drafts = [
@@ -148,7 +148,6 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
         ),
     ]
     get_payload_mock.return_value = {
-        "state_type": "gmail_read_specific_draft_selection",
         "drafts": drafts,
     }
 
@@ -169,6 +168,7 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
         user_id=7,
         conversation_id=11,
         session=session,
+        state_type="gmail_read_specific_draft_selection",
     )
     delete_state_mock.assert_called_once_with(
         user_id=7,
@@ -177,8 +177,8 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
     )
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.get_tool_payload")
 def test_selected_position_without_state_returns_error(
     get_payload_mock: Mock,
     delete_state_mock: Mock,
@@ -205,6 +205,7 @@ def test_selected_position_without_state_returns_error(
         user_id=7,
         conversation_id=11,
         session=session,
+        state_type="gmail_read_specific_draft_selection",
     )
     delete_state_mock.assert_not_called()
 
@@ -227,8 +228,8 @@ def test_multiple_requested_results_returns_unsupported_error() -> None:
     }
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.get_tool_payload")
 def test_selected_position_out_of_range_returns_error(
     get_payload_mock: Mock,
     delete_state_mock: Mock,
@@ -255,7 +256,6 @@ def test_selected_position_out_of_range_returns_error(
         ),
     ]
     get_payload_mock.return_value = {
-        "state_type": "gmail_read_specific_draft_selection",
         "drafts": drafts,
     }
 

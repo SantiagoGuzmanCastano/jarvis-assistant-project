@@ -1,7 +1,7 @@
 import base64
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import gmail_read_latest_email_tool
+from app.tools.external.gmail.received_email_reading import gmail_read_latest_email_tool
 
 
 def _gmail_email(message_id: str, subject: str, body: str) -> dict:
@@ -20,8 +20,8 @@ def _gmail_email(message_id: str, subject: str, body: str) -> dict:
     }
 
 
-@patch("app.tools.external.gmail_tools.fetch_full_latest_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_reading.fetch_full_latest_gmail_messages")
+@patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token")
 def test_recent_position_returns_the_requested_email(
     access_token_mock: Mock,
     fetch_latest_mock: Mock,

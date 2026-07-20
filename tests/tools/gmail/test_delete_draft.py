@@ -1,12 +1,12 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import gmail_delete_draft_tool
+from app.tools.external.gmail.draft_deletion import gmail_delete_draft_tool
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.delete_gmail_draft")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_deletion.delete_tool_state")
+@patch("app.tools.external.gmail.draft_deletion.delete_gmail_draft")
+@patch("app.tools.external.gmail.draft_deletion.get_tool_payload")
+@patch("app.tools.external.gmail.draft_deletion.get_valid_google_access_token")
 def test_selected_draft_is_permanently_deleted_and_state_is_cleared(
     access_token_mock: Mock,
     get_payload_mock: Mock,
@@ -20,7 +20,6 @@ def test_selected_draft_is_permanently_deleted_and_state_is_cleared(
     ]
     access_token_mock.return_value = "access-token"
     get_payload_mock.return_value = {
-        "state_type": "gmail_delete_draft_selection",
         "drafts": drafts,
     }
 
@@ -31,12 +30,7 @@ def test_selected_draft_is_permanently_deleted_and_state_is_cleared(
         conversation_id=11,
     )
 
-    assert result == {
-        "deleted": True,
-        "drafts": [drafts[1]],
-        "returned_count": 1,
-        "has_more": False,
-    }
+    assert result == {"success": True, "draft": drafts[1]}
     delete_draft_mock.assert_called_once_with(
         draft_id="draft-2",
         access_token="access-token",
@@ -56,13 +50,13 @@ def test_multiple_draft_delete_request_is_rejected() -> None:
         conversation_id=11,
     )
 
-    assert result["deleted"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_draft_delete_not_supported"
 
 
-@patch("app.tools.external.gmail_tools.fetch_gmail_drafts")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_deletion.fetch_gmail_drafts")
+@patch("app.tools.external.gmail.draft_deletion.delete_tool_state")
+@patch("app.tools.external.gmail.draft_deletion.get_valid_google_access_token")
 def test_recent_result_position_uses_draft_flow(
     access_token_mock: Mock,
     delete_state_mock: Mock,
@@ -86,11 +80,11 @@ def test_recent_result_position_uses_draft_flow(
     delete_state_mock.assert_called_once()
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts")
-@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="to:lina@example.com")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_deletion.create_tool_state")
+@patch("app.tools.external.gmail.draft_deletion.delete_tool_state")
+@patch("app.tools.external.gmail.draft_deletion.fetch_specific_gmail_drafts")
+@patch("app.tools.external.gmail.draft_deletion.build_gmail_query", return_value="to:lina@example.com")
+@patch("app.tools.external.gmail.draft_deletion.get_valid_google_access_token")
 def test_multiple_draft_delete_search_saves_selection_state(
     access_token_mock: Mock,
     build_query_mock: Mock,
@@ -110,15 +104,15 @@ def test_multiple_draft_delete_search_saves_selection_state(
         conversation_id=11,
     )
 
-    assert result["deleted"] is False
+    assert result["success"] is False
     assert result["reason"] == "multiple_matching_drafts"
-    assert delete_state_mock.call_count == 2
+    assert delete_state_mock.call_count == 1
     create_state_mock.assert_called_once_with(
         user_id=7,
         conversation_id=11,
         session=session,
+        state_type="gmail_delete_draft_selection",
         payload={
-            "state_type": "gmail_delete_draft_selection",
             "drafts": drafts,
             "search_arguments": {
                 "start_date": None,

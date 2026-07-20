@@ -1,14 +1,14 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import (
+from app.tools.external.gmail.draft_listings import (
     gmail_get_drafted_emails_tool,
-    gmail_get_sent_emails_tool,
     gmail_search_drafted_emails_tool,
 )
+from app.tools.external.gmail.sent_email_listings import gmail_get_sent_emails_tool
 
 
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_listings.fetch_specific_gmail_drafts")
+@patch("app.tools.external.gmail.draft_listings.get_valid_google_access_token")
 def test_get_drafted_emails_uses_draft_list_arguments(
     access_token_mock: Mock,
     fetch_drafts_mock: Mock,
@@ -31,9 +31,9 @@ def test_get_drafted_emails_uses_draft_list_arguments(
     assert result == {"drafts": [], "returned_count": 0}
 
 
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query")
+@patch("app.tools.external.gmail.draft_listings.fetch_specific_gmail_drafts")
+@patch("app.tools.external.gmail.draft_listings.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_listings.build_gmail_query")
 def test_search_drafted_emails_uses_recipient_search_arguments(
     build_query_mock: Mock,
     access_token_mock: Mock,
@@ -71,8 +71,8 @@ def test_search_drafted_emails_uses_recipient_search_arguments(
     assert result == {"drafts": [], "returned_count": 0}
 
 
-@patch("app.tools.external.gmail_tools.fetch_sent_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.sent_email_listings.fetch_sent_gmail_messages")
+@patch("app.tools.external.gmail.sent_email_listings.get_valid_google_access_token")
 def test_get_sent_emails_uses_max_results_arguments(
     access_token_mock: Mock,
     fetch_sent_mock: Mock,

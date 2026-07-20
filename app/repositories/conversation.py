@@ -93,19 +93,22 @@ def delete_conversation_messages(conversation_id: int, session: Session):
     session.commit()
 
 
-def create_tool_state(payload: dict | list, user_id: int, session: Session, conversation_id: int):
-    
-    existing_tool_state = get_tool_state(user_id=user_id,session=session, conversation_id=conversation_id)
+def create_tool_state(*, user_id: int, conversation_id: int, state_type: str, payload: dict, session: Session):
 
-    if existing_tool_state is not None:
-        session.delete(existing_tool_state)
-        session.flush()
+    delete_statement = delete(ConversationToolState).where(
+    ConversationToolState.user_id == user_id,
+    ConversationToolState.conversation_id == conversation_id,
+    )
+
+    session.execute(delete_statement)
+    session.flush()
 
     now = datetime.now(timezone.utc)
 
     new_tool_state = ConversationToolState(
         user_id=user_id,
         conversation_id= conversation_id,
+        state_type=state_type,
         payload_json=payload,
         created_at=now,
         expires_at=now + timedelta(minutes=settings.tool_state_expire_minutes),
@@ -127,10 +130,11 @@ def create_tool_state(payload: dict | list, user_id: int, session: Session, conv
 #     return session.scalars(query).first()
 
 
-def get_tool_state(user_id: int, session: Session, conversation_id: int):
+def get_tool_state(user_id: int, session: Session, conversation_id: int, expected_state_type: str):
     query = select(ConversationToolState).where(
         ConversationToolState.user_id == user_id,
         ConversationToolState.conversation_id == conversation_id,
+        ConversationToolState.state_type == expected_state_type
     )
 
     return session.scalars(query).first()
@@ -144,8 +148,8 @@ def delete_tool_state(user_id: int, conversation_id: int,session: Session):
     session.commit()
 
 
-def get_tool_payload(user_id: int, session: Session, conversation_id: int):
-    tool_state = get_tool_state(user_id=user_id,session=session, conversation_id=conversation_id)
+def get_tool_payload(user_id: int, session: Session, conversation_id: int, state_type:str):
+    tool_state = get_tool_state(user_id=user_id,session=session, conversation_id=conversation_id, expected_state_type=state_type)
 
     now = datetime.now(timezone.utc)
 
@@ -157,6 +161,4 @@ def get_tool_payload(user_id: int, session: Session, conversation_id: int):
         return None
 
     return tool_state.payload_json
-
-
 

@@ -31,25 +31,33 @@ from app.schemas.tools.gmail_results import (
     SentEmailTrashResult,
     UpdateDraftResult,
 )
-from app.tools.external.gmail_tools import (
-    get_latest_emails_tool,
-    get_unread_emails_tool,
+from app.tools.external.gmail.draft_deletion import gmail_delete_draft_tool
+from app.tools.external.gmail.draft_reading import gmail_read_specific_draft_tool
+from app.tools.external.gmail.draft_updates import gmail_update_email_draft_tool
+from app.tools.external.gmail.reply_drafts import gmail_create_reply_draft_tool
+from app.tools.external.gmail.received_email_actions import gmail_move_email_to_trash_tool
+from app.tools.external.gmail.sent_email_actions import gmail_move_sent_email_to_trash_tool
+from app.tools.external.gmail.received_email_reading import (
+    gmail_read_latest_email_tool,
+    gmail_read_specific_email_tool,
+)
+from app.tools.external.gmail.draft_sending import gmail_send_drafted_email_tool
+from app.tools.external.gmail.draft_creation import (
     gmail_create_email_draft_tool,
     gmail_create_multiple_email_drafts_tool,
-    gmail_create_reply_draft_tool,
-    gmail_delete_draft_tool,
-    gmail_get_drafted_emails_tool,
+)
+from app.tools.external.gmail.sent_email_listings import (
     gmail_get_sent_emails_tool,
-    gmail_move_email_to_trash_tool,
-    gmail_move_sent_email_to_trash_tool,
-    gmail_read_latest_email_tool,
-    gmail_read_specific_draft_tool,
-    gmail_read_specific_email_tool,
-    gmail_search_drafted_emails_tool,
-    gmail_search_email_message_tool,
     gmail_search_sent_emails_tool,
-    gmail_send_drafted_email_tool,
-    gmail_update_email_draft_tool,
+)
+from app.tools.external.gmail.received_email_listings import (
+    get_latest_emails_tool,
+    get_unread_emails_tool,
+    gmail_search_email_message_tool,
+)
+from app.tools.external.gmail.draft_listings import (
+    gmail_get_drafted_emails_tool,
+    gmail_search_drafted_emails_tool,
 )
 from app.tools.internal.current_time import get_current_time
 

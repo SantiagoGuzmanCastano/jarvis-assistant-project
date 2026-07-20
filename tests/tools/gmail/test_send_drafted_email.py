@@ -1,12 +1,12 @@
 from unittest.mock import Mock, patch
 
-from app.tools.external.gmail_tools import gmail_send_drafted_email_tool
+from app.tools.external.gmail.draft_sending import gmail_send_drafted_email_tool
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.send_gmail_draft")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_sending.delete_tool_state")
+@patch("app.tools.external.gmail.draft_sending.send_gmail_draft")
+@patch("app.tools.external.gmail.draft_sending.get_tool_payload")
+@patch("app.tools.external.gmail.draft_sending.get_valid_google_access_token")
 def test_selected_draft_is_sent_and_state_is_cleared(
     access_token_mock: Mock,
     get_payload_mock: Mock,
@@ -19,7 +19,7 @@ def test_selected_draft_is_sent_and_state_is_cleared(
         {"draft_id": "draft-2", "subject": "Factura febrero"},
     ]
     access_token_mock.return_value = "access-token"
-    get_payload_mock.return_value = drafts
+    get_payload_mock.return_value = {"drafts": drafts}
 
     result = gmail_send_drafted_email_tool(
         arguments={"selected_result_position": 2},
@@ -43,7 +43,7 @@ def test_selected_draft_is_sent_and_state_is_cleared(
     )
 
 
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_sending.get_valid_google_access_token")
 def test_multiple_draft_send_request_is_rejected(
     access_token_mock: Mock,
 ) -> None:
@@ -63,11 +63,11 @@ def test_multiple_draft_send_request_is_rejected(
     }
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.fetch_specific_gmail_drafts")
-@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="to:lina@example.com")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_sending.create_tool_state")
+@patch("app.tools.external.gmail.draft_sending.delete_tool_state")
+@patch("app.tools.external.gmail.draft_sending.fetch_specific_gmail_drafts")
+@patch("app.tools.external.gmail.draft_sending.build_gmail_query", return_value="to:lina@example.com")
+@patch("app.tools.external.gmail.draft_sending.get_valid_google_access_token")
 def test_multiple_draft_send_search_saves_selection_state(
     access_token_mock: Mock,
     build_query_mock: Mock,
@@ -92,13 +92,14 @@ def test_multiple_draft_send_search_saves_selection_state(
     create_state_mock.assert_called_once_with(
         user_id=7,
         conversation_id=11,
-        payload=drafts,
+        state_type="gmail_draft_selection",
+        payload={"drafts": drafts},
         session=session,
     )
 
 
-@patch("app.tools.external.gmail_tools.fetch_gmail_drafts")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_sending.fetch_gmail_drafts")
+@patch("app.tools.external.gmail.draft_sending.get_valid_google_access_token")
 def test_recent_result_position_uses_recent_draft_flow(
     access_token_mock: Mock,
     fetch_drafts_mock: Mock,

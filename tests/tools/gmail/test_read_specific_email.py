@@ -2,7 +2,7 @@ import base64
 from unittest.mock import Mock, patch
 
 from app.schemas.tools.gmail_results import ReadEmailResult
-from app.tools.external.gmail_tools import gmail_read_specific_email_tool
+from app.tools.external.gmail.received_email_reading import gmail_read_specific_email_tool
 
 
 def _gmail_email(message_id: str, sender: str, subject: str, body: str) -> dict:
@@ -23,11 +23,11 @@ def _gmail_email(message_id: str, sender: str, subject: str, body: str) -> dict:
     }
 
 
-@patch("app.tools.external.gmail_tools.create_tool_state")
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.fetch_full_specific_gmail_messages")
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token")
-@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="from:ana@example.com")
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.fetch_full_specific_gmail_messages")
+@patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token")
+@patch("app.tools.external.gmail.received_email_reading.build_gmail_query", return_value="from:ana@example.com")
 def test_search_with_multiple_matches_saves_state_and_requests_selection(build_query_mock: Mock, access_token_mock: Mock, fetch_messages_mock: Mock, delete_state_mock: Mock,create_state_mock: Mock,) -> None:
 
     session = Mock()
@@ -90,7 +90,7 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
     
     # delete_state_mock
     # → representa borrar el estado temporal anterior.
-    delete_state_mock.assert_called_once_with(user_id=7, conversation_id=11, session=session)
+    delete_state_mock.assert_not_called()
 
     # create_state_mock
     # → representa guardar los candidatos para la selección.
@@ -98,13 +98,14 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
         user_id=7,
         session=session,
         conversation_id=11,
+        state_type="gmail_read_specific_email_selection",
         payload={"emails": emails},
     )
 
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
+@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
 def test_selected_position_returns_saved_email_and_clears_state( get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
     session = Mock()
     emails = [
@@ -137,7 +138,12 @@ def test_selected_position_returns_saved_email_and_clears_state( get_payload_moc
     }
 
     #el assert verifica que al seleccionar el correo 2, el tool busco el estado temporal usando el usuario, ls conversion y la session
-    get_payload_mock.assert_called_once_with(user_id=7, conversation_id=11, session=session)
+    get_payload_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_read_specific_email_selection",
+    )
 
     #despues verifica si se borro
     delete_state_mock.assert_called_once_with(user_id=7, conversation_id=11, session=session)
@@ -151,8 +157,8 @@ def test_selected_position_returns_saved_email_and_clears_state( get_payload_moc
 # → devuelve missing_tool_state
 # → no intenta borrar estado
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload",return_value=None,)
+@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.get_tool_payload",return_value=None,)
 def test_selected_position_without_state_returns_error(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
 
     session = Mock()
@@ -178,13 +184,14 @@ def test_selected_position_without_state_returns_error(get_payload_mock: Mock, d
     user_id=7,
     conversation_id=11,
     session=session,
+    state_type="gmail_read_specific_email_selection",
     )
     delete_state_mock.assert_not_called()
 
 
-@patch("app.tools.external.gmail_tools.fetch_full_specific_gmail_messages", return_value=[])
-@patch("app.tools.external.gmail_tools.get_valid_google_access_token", return_value="access-token")
-@patch("app.tools.external.gmail_tools.build_gmail_query", return_value="from:ana@example.com")
+@patch("app.tools.external.gmail.received_email_reading.fetch_full_specific_gmail_messages", return_value=[])
+@patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token", return_value="access-token")
+@patch("app.tools.external.gmail.received_email_reading.build_gmail_query", return_value="from:ana@example.com")
 def test_empty_search_result_returns_email_not_found(
     build_query_mock: Mock,
     access_token_mock: Mock,
@@ -222,8 +229,8 @@ def test_multiple_requested_results_returns_unsupported_error() -> None:
 
 
 
-@patch("app.tools.external.gmail_tools.delete_tool_state")
-@patch("app.tools.external.gmail_tools.get_tool_payload")
+@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
 def test_selected_position_out_of_range_returns_error(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
     session = Mock()
     emails = [
@@ -253,5 +260,6 @@ def test_selected_position_out_of_range_returns_error(get_payload_mock: Mock, de
     user_id=7,
     conversation_id=11,
     session=session,
+    state_type="gmail_read_specific_email_selection",
     )
     delete_state_mock.assert_not_called()

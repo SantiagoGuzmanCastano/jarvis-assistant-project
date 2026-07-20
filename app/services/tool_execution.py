@@ -4,7 +4,18 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.tools.external.gmail_tools import gmail_create_reply_draft_tool, gmail_delete_draft_tool, gmail_move_email_to_trash_tool, gmail_move_sent_email_to_trash_tool, gmail_read_latest_email_tool, gmail_read_specific_draft_tool, gmail_read_specific_email_tool, gmail_search_drafted_emails_tool, gmail_send_drafted_email_tool, gmail_update_email_draft_tool
+from app.tools.external.gmail.draft_deletion import gmail_delete_draft_tool
+from app.tools.external.gmail.draft_reading import gmail_read_specific_draft_tool
+from app.tools.external.gmail.draft_sending import gmail_send_drafted_email_tool
+from app.tools.external.gmail.draft_updates import gmail_update_email_draft_tool
+from app.tools.external.gmail.draft_listings import gmail_search_drafted_emails_tool
+from app.tools.external.gmail.received_email_actions import gmail_move_email_to_trash_tool
+from app.tools.external.gmail.received_email_reading import (
+    gmail_read_latest_email_tool,
+    gmail_read_specific_email_tool,
+)
+from app.tools.external.gmail.reply_drafts import gmail_create_reply_draft_tool
+from app.tools.external.gmail.sent_email_actions import gmail_move_sent_email_to_trash_tool
 from app.tools.registry import TOOLS
 
 

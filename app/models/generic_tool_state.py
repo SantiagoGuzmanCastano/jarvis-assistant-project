@@ -24,6 +24,6 @@ class ConversationToolState(Base):
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),nullable=False,)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),nullable=False,)
-    
-    
+    state_type: Mapped[str] = mapped_column(nullable=False)    
+
 
