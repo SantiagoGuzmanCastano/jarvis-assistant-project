@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from app.tools.external.gmail.reply_drafts import gmail_create_reply_draft_tool
 
@@ -47,6 +47,7 @@ def test_recent_result_position_uses_recent_reply_flow(
 
 
 @patch("app.tools.external.gmail.reply_drafts.create_draft_reply")
+@patch("app.tools.external.gmail.reply_drafts.create_tool_state")
 @patch("app.tools.external.gmail.reply_drafts.search_latest_gmail_messages_for_metadata")
 @patch("app.tools.external.gmail.reply_drafts.delete_tool_state")
 @patch("app.tools.external.gmail.reply_drafts.get_valid_google_access_token")
@@ -54,6 +55,7 @@ def test_recent_reply_returns_normalized_draft_result(
     access_token_mock: Mock,
     delete_state_mock: Mock,
     search_latest_mock: Mock,
+    create_state_mock: Mock,
     create_reply_mock: Mock,
 ) -> None:
     access_token_mock.return_value = "access-token"
@@ -84,3 +86,17 @@ def test_recent_reply_returns_normalized_draft_result(
         },
     }
     delete_state_mock.assert_called_once()
+    create_state_mock.assert_called_once_with(
+        payload={
+            "active_draft": {
+                "draft_id": "draft-1",
+                "to": "ana@example.com",
+                "subject": "Re: Factura",
+                "body": "Gracias por la información.",
+            },
+        },
+        user_id=7,
+        session=ANY,
+        conversation_id=11,
+        state_type="gmail_active_draft",
+    )

@@ -1,216 +1,101 @@
 # Jarvis Assistant
 
-Jarvis is an AI-powered personal assistant backend built as a learning-focused project for backend architecture, applied AI, and real-world integrations.
+Jarvis is a learning-focused FastAPI backend for a conversational assistant. It combines PostgreSQL, JWT authentication, Gemini, Google OAuth, and Gmail actions. Flutter is intentionally deferred to Phase 10 while the backend contracts are stabilized.
 
-The current backend supports authentication, conversations, Gemini-powered chat, assistant personality settings, and a first internal tool execution flow.
-
-## Current Status
+## Current status
 
 Completed:
 
-- Phase 1: Backend structure and authentication
-- Phase 2: Conversations and messages
-- Phase 3: Gemini text chat with conversation history
-- Phase 4: Jarvis personality and user settings
-- Phase 5: Tool system base
+- Phases 1-6: backend foundation, authentication, conversations, Gemini chat, user settings, base tools, and Google OAuth token storage.
+- Phase 7: Gmail listing, search, reading, drafts, reply drafts, sending, updates, deletion, and move-to-Trash flows.
+- Phase 7.5: backend stabilization and tool refactor, including typed Gmail contracts, Alembic migrations, temporary tool state, normalized errors, and regression coverage.
 
-Pending:
+Next priority:
 
-- External OAuth and token storage
-- Gmail, Calendar, Spotify, and Notion tools
-- Persistent memory
-- Tests, Docker polish, and documentation cleanup
-- Flutter app
-- Voice pipeline
-- Proactivity and deployment
+- Phase 8: Persistent Memory.
 
-## Tech Stack
-
-- Python
-- FastAPI
-- SQLAlchemy
-- PostgreSQL
-- Pydantic
-- JWT authentication
-- Gemini API
-- Bruno for manual API testing
+Out of scope for this phase: Flutter, Calendar, persistent memory, voice, Docker/CI, and new integrations.
 
 ## Architecture
 
-The backend is organized by responsibility:
-
 ```text
-app/
-├── core/            # configuration and security helpers
-├── db/              # database session and initialization
-├── dependencies/    # FastAPI dependencies
-├── integrations/    # external API clients
-├── models/          # SQLAlchemy models
-├── repositories/    # database access
-├── routers/         # HTTP endpoints
-├── schemas/         # Pydantic schemas
-├── services/        # business logic
-└── tools/           # backend tools/actions
+routers        HTTP endpoints and dependencies
+services       business and chat orchestration
+repositories   PostgreSQL access
+models         SQLAlchemy database tables
+schemas        Pydantic validation and serialized contracts
+integrations   Gemini, Google OAuth, and Gmail clients
+tools          Gmail actions selected by the intent router
 ```
 
-Main rule:
-
-```text
-routers receive HTTP requests
-services coordinate business logic
-repositories access the database
-integrations talk to external APIs
-tools execute backend actions
-```
-
-## Main Features
-
-### Authentication
-
-- User registration
-- User login
-- JWT access tokens
-- Protected current-user endpoint
-
-### Conversations
-
-- Create conversations
-- List current user's conversations
-- Read one conversation with messages
-- Add messages to a conversation
-- Delete owned conversations
-
-### Gemini Chat
-
-The chat flow:
-
-```text
-POST /chat
-→ validate conversation ownership
-→ save user message
-→ load user settings
-→ build Jarvis system prompt
-→ load conversation history
-→ format messages for Gemini
-→ generate assistant response
-→ save assistant response
-```
-
-### User Settings
-
-Each user can configure:
-
-- assistant name
-- assistant personality
-- language mode
-
-These settings are injected into the system prompt before each chat response.
-
-### Tool System Base
-
-Phase 5 adds the first backend tool architecture.
-
-Current demo tool:
-
-```text
-get_current_time
-```
-
-Tool flow:
+The tool flow is:
 
 ```text
 user message
-→ detect_tool_intent()
-→ ToolIntent
-→ tool_execution_system()
-→ Tool Registry
-→ backend tool function
-→ tool_result
-→ Gemini final response
+-> intent router (Gemini)
+-> validated tool registry entry
+-> tool execution
+-> validated tool result
+-> untrusted tool context for Gemini
+-> final assistant response
 ```
 
-Important rule:
+Gemini chooses a tool; only backend Python code executes it. Gmail data is treated as external untrusted content when passed back to Gemini.
 
-```text
-Gemini chooses intent.
-The backend executes tools.
-Tools are Python code.
+## Gmail behavior
+
+- Search and list flows return small batches and can expand up to 15 results.
+- An ambiguous action stores one typed, temporary selection state per user and conversation.
+- State expires automatically and is replaced atomically when a new pending action begins.
+- Mutable actions identify exactly one email or draft before sending, updating, moving to Trash, or deleting it.
+- Gmail provider failures are mapped to stable application errors.
+
+## Error contract
+
+Application errors use this HTTP response shape:
+
+```json
+{
+  "error": {
+    "code": "external_provider_unavailable",
+    "message": "Google Gmail is temporarily unavailable.",
+    "details": {}
+  }
+}
 ```
 
-Only the user message and final assistant response are saved as conversation messages. Tool context is temporary and only sent to Gemini for the final response.
+Services and repositories raise `AppError` for business failures. FastAPI dependencies and global handlers remain the HTTP boundary.
 
-## Main Endpoints
+## Local setup
 
-Auth:
-
-```text
-POST /auth/register
-POST /auth/login
-GET  /auth/me
-```
-
-Conversations:
-
-```text
-POST   /conversations
-GET    /conversations
-GET    /conversations/{conversation_id}
-POST   /conversations/{conversation_id}/messages
-DELETE /conversations/{conversation_id}
-```
-
-Chat:
-
-```text
-POST /chat
-```
-
-User settings:
-
-```text
-POST  /user-settings
-GET   /user-settings
-PATCH /user-settings
-```
-
-## Backend Setup
-
-Activate the virtual environment:
+Create a local `.env` from `.env.example`, then fill in real secrets. Never commit `.env`.
 
 ```powershell
+Copy-Item .env.example .env
 .venv\Scripts\Activate.ps1
-```
-
-Install dependencies:
-
-```powershell
 pip install -r requirements.txt
-```
-
-Run the FastAPI server:
-
-```powershell
 uvicorn app.main:app --reload
 ```
 
-Open the API docs:
+Open the API documentation at `http://127.0.0.1:8000/docs`.
 
-```text
-http://127.0.0.1:8000/docs
+## Database migrations
+
+Alembic tracks schema changes. After changing a SQLAlchemy model:
+
+```powershell
+.\.venv\Scripts\alembic.exe revision --autogenerate -m "describe schema change"
+.\.venv\Scripts\alembic.exe upgrade head
 ```
 
-## Environment Variables
+Review every generated migration before running `upgrade head`.
 
-The backend expects environment configuration for database access, JWT security, and Gemini.
+## Tests
 
-Do not commit `.env`.
+Run the complete suite without pytest cache writes:
 
-## Bruno
-
-Bruno is used for manual API testing.
-
-Use the local server URL:
-
-```text
-http://127.0.0.1:8000
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
 ```
+
+Provider calls are mocked in tests. Use Bruno and a connected Google account only for manual Gmail smoke checks.

@@ -15,6 +15,22 @@ from app.repositories.conversation import (
 from app.services.external_auth_service import get_valid_google_access_token
 
 
+def _save_active_draft(
+    *,
+    user_id: int,
+    conversation_id: int,
+    session: Session,
+    draft: dict,
+) -> None:
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={"active_draft": draft},
+    )
+
+
 def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: int, conversation_id: int,
 ):
     requested_result_count = arguments.get("requested_result_count", 1)
@@ -95,6 +111,12 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             ),
             position=recent_result_position,
         )
+        _save_active_draft(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            draft=selected_draft,
+        )
 
         return {
             "success": True,
@@ -156,6 +178,12 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
             user_id=user_id,
             conversation_id=conversation_id,
             session=session,
+        )
+        _save_active_draft(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            draft=selected_draft,
         )
 
         return {
@@ -246,6 +274,12 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         }
 
     if len(drafts_found) == 1:
+        _save_active_draft(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            draft=drafts_found[0],
+        )
         return {
             "success": True,
             "drafts": [drafts_found[0]],

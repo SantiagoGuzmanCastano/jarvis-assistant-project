@@ -472,7 +472,13 @@ def normalize_text(text: str | None) -> str:
 GOOGLE_UPDATEDRAFTS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
 
 
-def update_gmail_draft(access_token: str, body: str, subject: str, recipient_email: str, draft_id: int):
+def update_gmail_draft(
+    access_token: str,
+    body: str,
+    subject: str,
+    recipient_email: str,
+    draft_id: str,
+) -> dict:
 
     headers={
         "Authorization": f"Bearer {access_token}",
@@ -487,6 +493,7 @@ def update_gmail_draft(access_token: str, body: str, subject: str, recipient_ema
     encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
     payload = {
+        "id": draft_id,
         "message": {
         "raw": encoded_message,
         }

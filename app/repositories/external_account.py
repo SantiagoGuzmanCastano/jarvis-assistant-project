@@ -1,7 +1,6 @@
 
 from datetime import datetime
 
-from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 

@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException,status
-from sqlalchemy import select, delete, insert
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 from app.core.config import settings
 

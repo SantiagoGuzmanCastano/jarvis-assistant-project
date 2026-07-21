@@ -50,6 +50,23 @@ def test_client_error_becomes_provider_error(client_mock: Mock):
     assert error.status_code == 502
 
 
+@patch("app.integrations.gemini_client.genai.Client")
+def test_empty_response_becomes_provider_error(client_mock: Mock):
+    client = client_mock.return_value
+    client.models.generate_content.return_value = Mock(text=None)
+
+    with pytest.raises(AppError) as error_info:
+        generate_gemini_response(
+            messages=[],
+            system_prompt="You are Jarvis.",
+        )
+
+    error = error_info.value
+
+    assert error.code == "external_provider_invalid_response"
+    assert error.status_code == 502
+
+
 
 @patch("app.integrations.gemini_client.genai.Client")
 def test_intent_response_server_error_becomes_provider_unavailable(client_mock: Mock):
@@ -87,4 +104,21 @@ def test_intent_response_client_error_becomes_provider_error(client_mock: Mock):
     error = error_info.value
 
     assert error.code == "external_provider_error"
+    assert error.status_code == 502
+
+
+@patch("app.integrations.gemini_client.genai.Client")
+def test_empty_intent_response_becomes_provider_error(client_mock: Mock):
+    client = client_mock.return_value
+    client.models.generate_content.return_value = Mock(text="   ")
+
+    with pytest.raises(AppError) as error_info:
+        generate_gemini_intent_response(
+            conversation_content="Read my latest emails.",
+            system_intent_prompt="Classify the user's intent and return JSON.",
+        )
+
+    error = error_info.value
+
+    assert error.code == "external_provider_invalid_response"
     assert error.status_code == 502

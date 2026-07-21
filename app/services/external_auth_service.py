@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException,status
 from sqlalchemy.orm import Session
 
 from app.core.encryption import decrypt_token, encrypt_token
+from app.core.errors import AppError
 from app.integrations.google_oauth import exchange_code_for_tokens, get_google_user_info, refresh_google_access_token
 from app.repositories.external_account import create_external_account, get_external_account_by_user_id_and_provider, list_external_accounts, update_external_account_tokens
 
@@ -75,9 +75,10 @@ def get_valid_google_access_token(user_id: int, session: Session):
     external_account=get_external_account_by_user_id_and_provider(user_id=user_id, provider="google", session=session)
 
     if external_account is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='External Account not found'
+        raise AppError(
+            code="external_account_not_found",
+            message="Google account connection not found.",
+            status_code=404,
         )
 
     #si aun no ha expirado el access_token... todavia es util
@@ -86,9 +87,10 @@ def get_valid_google_access_token(user_id: int, session: Session):
     
     #si no se encontró
     if external_account.encrypted_refresh_token is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='Refresh token not found'
+        raise AppError(
+            code="google_refresh_token_not_found",
+            message="Google refresh token not found.",
+            status_code=404,
         )
 
     #si ya expiro el access_token
@@ -125,9 +127,10 @@ def list_current_user_external_accounts(user_id: int, session: Session):
     response = list_external_accounts(user_id=user_id, session=session)
 
     if not response :
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='User does not have external connections'
+        raise AppError(
+            code="external_accounts_not_found",
+            message="No external account connections were found.",
+            status_code=404,
         )
     
     return response

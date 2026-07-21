@@ -1,34 +1,8 @@
 
-import json
-
-from app.integrations.gemini_client import generate_gemini_intent_response
-from app.schemas.intent_router import ToolIntent
-
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 now = datetime.now(ZoneInfo("America/Bogota"))
-
-
-def detect_tool_intent(last_message_content: str, recent_messages_content_list: list) -> ToolIntent:
-    system_intent_prompt= build_tool_intent_prompt()
-    conversation_content = build_intent_input(last_message_content=last_message_content, recent_messages_content_list= recent_messages_content_list)
-    tool_response = generate_gemini_intent_response(conversation_content=conversation_content, system_intent_prompt=system_intent_prompt)
-
-    print("\nCONVERSATION CONTEXT RESPONSE:",)
-    
-    for message_dict in recent_messages_content_list:
-      role = message_dict["role"]
-      text = message_dict["parts"][0]["text"]
-      print("--------------------------------------------------------")
-      print(f"{role}: {text}")
-    print("--------------------------------------------------------")
-    print("\nRAW TOOL RESPONSE:", tool_response)
-    print("END RAW TOOL RESPONSE")
-    print("\n")
-
-    return parse_tool_intent_response(response_text=tool_response)
-
 
 
 def build_intent_input(last_message_content: str, recent_messages_content_list: list) ->str:
@@ -1521,6 +1495,9 @@ For gmail_create_reply_draft:
 
 For recent_email:
 - Use it when the user refers to an email by recent position without selecting from a previously shown list.
+- Use recent_email only when the user gives no identifying filter such as sender, email address, topic, subject, content detail, or date.
+- A sender always takes priority over recent position. For example, "reply to Ana's latest email" is specific_email with sender_hint ["Ana"], never recent_email.
+- "Latest" or "last" describes which result the backend should choose only when it is not qualified by a sender or another identifying filter.
 - Positions start at 1.
 - recent_result_position 1 means the latest email.
 - recent_result_position 2 means the penultimate email.
@@ -1887,38 +1864,4 @@ Rules:
 Return only valid JSON. Do not include markdown. Do not explain anything.
 """
 
-def parse_tool_intent_response(response_text: str) -> ToolIntent:
-    data = json.loads(response_text)
-    #print(data)
-    #{
-    #'needs_tool': True,
-    #'tool_name': 'get_current_time',
-    #'arguments': {}
-    #}
-
-    # aca pydantic valida que el diccionario tenga la forma esperada
-    # needs_tool debe ser bool
-    # tool_name debe ser str o none
-    # arguments debe ser dict
-    #LAS CLAVES DEBEN COINCIDIR CON LOS ATRIBUTOS DEL SCHEMA!
-    intent = ToolIntent(**data)
-
-    if intent.needs_tool and intent.tool_name is None:
-        raise ValueError("tool_name is required when needs_tool is true")
-    
-
-    #esto lo volvemos a chequear porque el prompt se puede equivocar
-    #debemos validarlo aunque se supone que response_text ya deberia estar
-    #bien formateado
-    if intent.needs_tool is False:
-        return ToolIntent(
-            needs_tool=False,
-            tool_name=None,
-            arguments={}
-        )
-    
-    if intent.tool_name not in ["get_current_time", "get_unread_emails", "get_latest_emails", "gmail_search_email_message","gmail_create_email_draft", "gmail_search_drafted_emails", "gmail_get_drafted_emails", "gmail_send_drafted_email", "gmail_create_multiple_email_drafts", "gmail_read_latest_email","gmail_read_specific_email", "gmail_read_specific_draft", "gmail_move_email_to_trash", "gmail_move_sent_email_to_trash", "gmail_delete_draft", "gmail_update_email_draft", "gmail_create_reply_draft", "gmail_get_sent_emails", "gmail_search_sent_emails"]:
-        raise ValueError("Unknown tool")
-    
-    return intent
 

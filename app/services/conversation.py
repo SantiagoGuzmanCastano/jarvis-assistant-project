@@ -1,8 +1,7 @@
 
-from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.dependencies.auth import get_current_user
+from app.core.errors import AppError
 from app.models.user import User
 from app.repositories.conversation import create_conversation, create_message, delete_conversation, delete_conversation_messages, get_user_conversation_by_id, get_user_conversations
 from app.schemas.conversation import CreateConversation, CreateMessage
@@ -21,9 +20,10 @@ def get_user_conversation_detail(current_user: User, conversation_id: int, sessi
     conversation_exists = get_user_conversation_by_id(user_id=current_user.id, conversation_id=conversation_id, session=session)
 
     if conversation_exists is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='Conversation not found'
+        raise AppError(
+            code="conversation_not_found",
+            message="Conversation not found.",
+            status_code=404,
         )
     
     return conversation_exists
@@ -34,9 +34,10 @@ def create_user_message(current_user: User ,conversation_id: int, session: Sessi
     conversation_exists = get_user_conversation_by_id(user_id=current_user.id, conversation_id=conversation_id, session=session)
 
     if conversation_exists is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='Conversation not found'
+        raise AppError(
+            code="conversation_not_found",
+            message="Conversation not found.",
+            status_code=404,
         )
     
     new_message = create_message(content=body.content, conversation_id=conversation_id, session=session, role="user")
@@ -49,9 +50,10 @@ def delete_current_user_conversation(user_id: int,conversation_id: int, session:
     conversation_exists = get_user_conversation_by_id(user_id=user_id, conversation_id=conversation_id, session=session)
 
     if conversation_exists is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='Conversation not found'
+        raise AppError(
+            code="conversation_not_found",
+            message="Conversation not found.",
+            status_code=404,
         )
 
     delete_conversation_messages(conversation_id=conversation_id, session=session)

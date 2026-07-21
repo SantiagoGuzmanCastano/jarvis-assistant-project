@@ -6,6 +6,25 @@ Phase 7 delivered a functional Gmail integration. Phase 7.5 turns that functiona
 
 Flutter moves to Phase 10. Building it now would couple a new client to APIs and Gmail flows that are still being redesigned.
 
+## Implementation status
+
+Implemented during this phase:
+
+- JWT access-token claims and expiration checks, CORS configuration, a shared API error shape, and safe provider timeouts.
+- Alembic baseline migrations plus the `conversation_tool_state` lifecycle: one active state per user and conversation, typed state lookup, atomic replacement, and expiry.
+- A synchronous Gmail client split by received mail, sent mail, drafts, search helpers, and request/error handling.
+- Pydantic input and result schemas for Gmail tools. The implemented result contract uses `success`, optional `reason` and `message`, and typed email or draft fields; it does not use the earlier proposed `status` / `action` / `items` format.
+- Gmail tools split into focused modules, with stateful selection flows protected by `state_type`.
+- A declarative registry that stores each tool handler, schemas, and whether it requires `conversation_id`; the execution service validates both arguments and results.
+- Intent routing split into prompt, parser, service, and tool-catalog responsibilities.
+- Chat orchestration that keeps the current user message in memory until Gemini completes, then persists the user and assistant messages together in the normal success path.
+- Tool results marked as untrusted external data before they are passed to the final Gemini response.
+- Regression tests for Gmail flows, tool state, registry execution, intent parsing, chat orchestration, provider errors, and service error contracts.
+
+Intentional exception:
+
+- Debug `print()` statements remain temporarily for teaching demonstrations. They must not include tokens, passwords, complete email or draft bodies, complete prompts, or raw LLM responses. Structured logging remains a future cleanup item before production readiness.
+
 ## Scope
 
 ### 1. Preserve and verify the current Gmail milestone

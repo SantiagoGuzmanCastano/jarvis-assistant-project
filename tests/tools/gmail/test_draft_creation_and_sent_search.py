@@ -9,7 +9,9 @@ from app.tools.external.gmail.sent_email_listings import gmail_search_sent_email
 
 @patch("app.tools.external.gmail.draft_creation.create_gmail_draft")
 @patch("app.tools.external.gmail.draft_creation.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_creation.create_tool_state")
 def test_create_email_draft_uses_complete_create_draft_arguments(
+    create_state_mock: Mock,
     access_token_mock: Mock,
     create_draft_mock: Mock,
 ) -> None:
@@ -25,6 +27,7 @@ def test_create_email_draft_uses_complete_create_draft_arguments(
         },
         user_id=7,
         session=session,
+        conversation_id=11,
     )
 
     create_draft_mock.assert_called_once_with(
@@ -32,6 +35,20 @@ def test_create_email_draft_uses_complete_create_draft_arguments(
         recipient_email="lina@example.com",
         subject="Factura",
         body="Adjunto la factura.",
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={
+            "active_draft": {
+                "draft_id": "draft-1",
+                "to": "lina@example.com",
+                "subject": "Factura",
+                "body": "Adjunto la factura.",
+            }
+        },
     )
     assert result == {
         "success": True,

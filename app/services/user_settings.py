@@ -1,7 +1,7 @@
 
-from fastapi import HTTPException,status
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.repositories.user_settings import create_user_settings, delete_user_settings, get_user_settings_by_user_id, update_user_settings_by_user_id
 from app.schemas.user_settings import UserSettingsCreate, UserSettingsUpdate
 
@@ -14,9 +14,10 @@ def create_current_user_setting(user_id: int, session: Session, body:UserSetting
     existing_settings = get_user_settings_by_user_id(user_id=user_id, session=session)
 
     if existing_settings is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User settings already exist"
+        raise AppError(
+            code="user_settings_already_exists",
+            message="User settings already exist.",
+            status_code=400,
         )
     
 
@@ -34,18 +35,20 @@ def update_current_user_settings(user_id: int, session: Session, body: UserSetti
     existing_settings = get_user_settings_by_user_id(user_id=user_id, session=session)
 
     if existing_settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User settings not found"
+        raise AppError(
+            code="user_settings_not_found",
+            message="User settings not found.",
+            status_code=404,
         )
     
 
     updated_data = body.model_dump(exclude_unset=True, exclude_none=True)
 
     if not updated_data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields provided to update",
+        raise AppError(
+            code="empty_user_settings_update",
+            message="No fields were provided to update.",
+            status_code=400,
         )
 
     return update_user_settings_by_user_id(session=session, user_id=user_id, updated_data=updated_data)
@@ -56,9 +59,10 @@ def get_current_user_settings(user_id: int, session: Session):
     existing_settings = get_user_settings_by_user_id(user_id=user_id, session=session)
 
     if existing_settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User settings not found"
+        raise AppError(
+            code="user_settings_not_found",
+            message="User settings not found.",
+            status_code=404,
         )
     
     return existing_settings
@@ -69,9 +73,10 @@ def restart_current_user_settings(user_id:int, session: Session):
     existing_settings = get_user_settings_by_user_id(user_id=user_id, session=session)
 
     if existing_settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User settings not found"
+        raise AppError(
+            code="user_settings_not_found",
+            message="User settings not found.",
+            status_code=404,
         )
     
     delete_user_settings(user_id=user_id, session=session)

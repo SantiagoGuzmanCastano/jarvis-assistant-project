@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.integrations.gmail.drafts import create_gmail_draft
+from app.repositories.conversation import create_tool_state
 from app.services.external_auth_service import get_valid_google_access_token
 
 
@@ -8,6 +9,7 @@ def gmail_create_email_draft_tool(
     arguments: dict,
     user_id: int,
     session: Session,
+    conversation_id: int,
 ) -> dict:
     recipient_email = arguments.get("recipient_email")
     subject = arguments.get("subject")
@@ -36,6 +38,20 @@ def gmail_create_email_draft_tool(
         body=body,
         subject=subject,
         recipient_email=recipient_email,
+    )
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={
+            "active_draft": {
+                "draft_id": new_draft["id"],
+                "to": recipient_email,
+                "subject": subject,
+                "body": body,
+            }
+        },
     )
     return {
         "success": True,

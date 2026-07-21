@@ -1,11 +1,11 @@
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.integrations.gemini_client import generate_gemini_response
 from app.models.message import Message
 from app.repositories.conversation import create_message, get_recent_conversation_messages, get_user_conversation_by_id
 from app.repositories.user_settings import get_user_settings_by_user_id
-from app.services.intent_router import detect_tool_intent
+from app.services.intent_router_service import detect_tool_intent
 from app.services.prompts import build_system_prompt
 from app.services.tool_execution import build_tool_context, tool_execution_system
 
@@ -24,47 +24,27 @@ def format_messages_for_gemini(messages: list[Message]) -> list:
     return gemini_messages
 
 
-def format_recent_messages_for_gemini(messages: list[Message]):
-
-    gemini_messages = []
-
-    for message in messages:
-        role = 'model' if message.role == 'assistant' else 'user'
-        gemini_messages.append({
-            'role': role,
-            'parts': [{'text': message.content}]
-        })
-
-    return gemini_messages
-
-
 def create_chat_response(conversation_id: int, user_id: int, session: Session, content: str):
     
     conversation=get_user_conversation_by_id(user_id=user_id, conversation_id=conversation_id, session=session)
 
+    
     if conversation is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='Conversation not found'
+        raise AppError(
+            code="conversation_not_found",
+            message="Conversation not found.",
+            status_code=404,
         )
-    
-
-    create_message(
-        content=content,
-        conversation_id=conversation_id,
-        session=session,
-        role='user'
-    )
-    
 
 
     user_settings = get_user_settings_by_user_id(user_id=user_id, session=session)
 
     if user_settings is None:
-        raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="User settings must be configured before chatting",
-    )
+        raise AppError(
+            code="user_settings_not_configured",
+            message="User settings must be configured before chatting.",
+            status_code=400,
+        )
 
     system_prompt = build_system_prompt(user_settings=user_settings)
     
@@ -80,6 +60,13 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
     
     messages_for_response_formatted = format_messages_for_gemini(messages=messages_for_response) # type: ignore
 
+    messages_for_response_formatted.append(
+    {
+        "role": "user",
+        "parts": [{"text": content}],
+    }
+)
+
     messages_for_intent_formatted = format_messages_for_gemini(messages=messages_for_intent) # type: ignore
 
 
@@ -93,11 +80,12 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
 
     
     # caso que no nos devuelva un error 
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid tool intent"
-            )
+    except ValueError as error:
+        raise AppError(
+            code="invalid_tool_intent",
+            message="The tool intent is invalid.",
+            status_code=400,
+        ) from error
 
     if tool_intent.needs_tool:
 
@@ -108,14 +96,20 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
             # {
             #     "current_time": "2026-06-14T..."
             # }
+    
 
-        except ValueError:
-            raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tool execution failed"
-        )
+        except ValueError as error:
+            raise AppError(
+                code="tool_execution_failed",
+                message="The tool request could not be executed.",
+                status_code=400,
+            ) from error
 
         tool_context = build_tool_context(tool_name=tool_intent.tool_name, tool_result=tool_result) # type: ignore
+        #el tool context tiene:
+        # el resultado de la tool ejecutada
+        # y las instrucciones para el llm para como responder eso
+
 
         messages_with_tool_context = messages_for_response_formatted + [ # type: ignore
             {
@@ -132,9 +126,17 @@ def create_chat_response(conversation_id: int, user_id: int, session: Session, c
             messages=messages_with_tool_context,
             system_prompt=system_prompt,
         )
+
     
     else:
         gemini_response = generate_gemini_response(messages=messages_for_response_formatted,system_prompt=system_prompt)
+
+    create_message(
+        content=content,
+        conversation_id=conversation_id,
+        session=session,
+        role='user'
+    )
 
     new_message = create_message(
         content=gemini_response, # type: ignore

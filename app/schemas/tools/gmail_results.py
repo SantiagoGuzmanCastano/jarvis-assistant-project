@@ -34,6 +34,13 @@ class DraftDetails(DraftSummary):
     body: str
 
 
+class DraftActionDetails(BaseModel):
+    draft_id: str
+    to: str
+    subject: str
+    body: str
+
+
 class DraftCreationReference(BaseModel):
     draft_id: str
     recipient_email: str
@@ -109,7 +116,7 @@ class SendDraftResult(DraftSelectionActionResult):
 
 
 class UpdateDraftResult(DraftSelectionActionResult):
-    draft: DraftDetails | None = None
+    draft: DraftActionDetails | None = None
     updated_fields: dict[str, bool] = Field(default_factory=dict)
 
 

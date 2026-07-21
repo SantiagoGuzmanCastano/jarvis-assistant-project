@@ -15,6 +15,33 @@ from app.repositories.conversation import (
 from app.services.external_auth_service import get_valid_google_access_token
 from app.tools.external.gmail.helpers import extract_gmail_reply_context
 
+
+def _save_active_reply_draft(
+    *,
+    created_draft: dict,
+    recipient_email: str,
+    subject: str,
+    body: str,
+    user_id: int,
+    session: Session,
+    conversation_id: int,
+) -> None:
+    create_tool_state(
+        payload={
+            "active_draft": {
+                "draft_id": created_draft["id"],
+                "to": recipient_email,
+                "subject": subject,
+                "body": body,
+            },
+        },
+        user_id=user_id,
+        session=session,
+        conversation_id=conversation_id,
+        state_type="gmail_active_draft",
+    )
+
+
 def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Session, conversation_id: int):
     access_token = get_valid_google_access_token(user_id=user_id,session=session)
     reply_body = arguments.get("reply_body", "")
@@ -82,6 +109,16 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                     recipient_email=reply_context["recipient_email"],
                     subject=reply_context["subject"],
                     body=reply_body)
+
+        _save_active_reply_draft(
+            created_draft=created_draft,
+            recipient_email=reply_context["recipient_email"],
+            subject=reply_context["subject"],
+            body=reply_body,
+            user_id=user_id,
+            session=session,
+            conversation_id=conversation_id,
+        )
 
         return {
             "success": True,
@@ -163,6 +200,15 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                     subject=selected_match["subject"],
                     body=reply_body)
             delete_tool_state(user_id=user_id,conversation_id=conversation_id,session=session)
+            _save_active_reply_draft(
+                created_draft=created_draft,
+                recipient_email=selected_match["recipient_email"],
+                subject=selected_match["subject"],
+                body=reply_body,
+                user_id=user_id,
+                session=session,
+                conversation_id=conversation_id,
+            )
             print("\nDeleted tool state!")
             return {
                 "success": True,
@@ -228,6 +274,16 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
                     recipient_email=emails_fetched[0]["recipient_email"],
                     subject=emails_fetched[0]["subject"],
                     body=reply_body,)
+
+            _save_active_reply_draft(
+                created_draft=created_draft,
+                recipient_email=emails_fetched[0]["recipient_email"],
+                subject=emails_fetched[0]["subject"],
+                body=reply_body,
+                user_id=user_id,
+                session=session,
+                conversation_id=conversation_id,
+            )
 
             return {
                 "success": True,

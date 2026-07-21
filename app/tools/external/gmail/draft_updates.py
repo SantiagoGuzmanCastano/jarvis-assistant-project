@@ -10,12 +10,60 @@ from app.integrations.gmail.drafts import (
     update_gmail_draft,
 )
 from app.integrations.gmail.search import build_gmail_query
+from app.core.errors import AppError
 from app.repositories.conversation import (
     create_tool_state,
     delete_tool_state,
     get_tool_payload,
 )
 from app.services.external_auth_service import get_valid_google_access_token
+
+
+def _update_and_verify_draft(
+    *,
+    access_token: str,
+    draft: dict,
+    recipient_email: str,
+    subject: str,
+    body: str,
+) -> dict:
+    draft_id = draft["draft_id"]
+    update_response = update_gmail_draft(
+        access_token=access_token,
+        body=body,
+        subject=subject,
+        recipient_email=recipient_email,
+        draft_id=draft_id,
+    )
+
+    if not isinstance(update_response, dict) or update_response.get("id") != draft_id:
+        raise AppError(
+            code="external_provider_invalid_response",
+            message="Gmail did not confirm the draft update.",
+            status_code=502,
+        )
+
+    verified_draft = format_gmail_draft_full(
+        draft=fetch_gmail_draft_full(
+            access_token=access_token,
+            draft_id=draft_id,
+        ),
+        position=draft.get("position", 1),
+    )
+
+    if (
+        verified_draft["draft_id"] != draft_id
+        or verified_draft["to"] != recipient_email
+        or verified_draft["subject"] != subject
+        or verified_draft["body"].strip() != body.strip()
+    ):
+        raise AppError(
+            code="external_provider_invalid_response",
+            message="Gmail did not confirm the draft update.",
+            status_code=502,
+        )
+
+    return verified_draft
 
 def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dict, conversation_id: int):
 
@@ -35,7 +83,7 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             user_id=user_id,
             session=session,
             conversation_id=conversation_id,
-            state_type="gmail_update_draft_active",
+            state_type="gmail_active_draft",
         )
 
         if tool_payload is None or "active_draft" not in tool_payload:
@@ -74,26 +122,19 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
         new_subject = requested_new_subject or selected_draft["subject"]
         new_body = requested_new_body or selected_draft["body"]
 
-        update_gmail_draft(
+        updated_draft = _update_and_verify_draft(
             access_token=access_token,
+            draft=selected_draft,
             body=new_body,
             subject=new_subject,
             recipient_email=new_recipient_email,
-            draft_id=selected_draft["draft_id"],
-            )
-
-        updated_draft = {
-            **selected_draft,
-            "to": new_recipient_email,
-            "subject": new_subject,
-            "body": new_body,
-        }
+        )
 
         create_tool_state(
             user_id=user_id,
             conversation_id=conversation_id,
             session=session,
-            state_type="gmail_update_draft_active",
+            state_type="gmail_active_draft",
             payload={"active_draft": updated_draft},
         )
 
@@ -195,26 +236,19 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             new_subject = requested_new_subject or selected_draft["subject"]
             new_body = requested_new_body or selected_draft["body"]
 
-            update_gmail_draft(
+            updated_draft = _update_and_verify_draft(
                 access_token=access_token,
+                draft=selected_draft,
                 body=new_body,
-                recipient_email=new_recipient_email,
                 subject=new_subject,
-                draft_id=selected_draft["draft_id"],
+                recipient_email=new_recipient_email,
             )
-
-            updated_draft = {
-                **selected_draft,
-                "to": new_recipient_email,
-                "subject": new_subject,
-                "body": new_body,
-            }
 
             create_tool_state(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 session=session,
-                state_type="gmail_update_draft_active",
+                state_type="gmail_active_draft",
                 payload={"active_draft": updated_draft},
             )
 
@@ -249,8 +283,16 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
                 user_id=user_id,
                 conversation_id=conversation_id,
                 session=session,
-                state_type="gmail_update_draft_selection",
+                state_type="gmail_draft_selection",
             )
+
+            if tool_payload is None:
+                tool_payload = get_tool_payload(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    session=session,
+                    state_type="gmail_update_draft_selection",
+                )
 
             if tool_payload is None:
                 return {
@@ -281,9 +323,27 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
 
             selected_draft = drafts_to_choose[selected_result_position - 1]
 
-            requested_new_recipient_email = tool_payload.get("new_recipient_email", "")
-            requested_new_subject = tool_payload.get("new_subject", "")
-            requested_new_body = tool_payload.get("new_body", "")
+            if "body" not in selected_draft:
+                selected_draft = format_gmail_draft_full(
+                    draft=fetch_gmail_draft_full(
+                        access_token=access_token,
+                        draft_id=selected_draft["draft_id"],
+                    ),
+                    position=selected_draft["position"],
+                )
+
+            requested_new_recipient_email = (
+                arguments.get("new_recipient_email")
+                or tool_payload.get("new_recipient_email", "")
+            )
+            requested_new_subject = (
+                arguments.get("new_subject")
+                or tool_payload.get("new_subject", "")
+            )
+            requested_new_body = (
+                arguments.get("new_body")
+                or tool_payload.get("new_body", "")
+            )
 
             if (
                 not requested_new_recipient_email
@@ -308,26 +368,19 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
             new_subject = requested_new_subject or selected_draft["subject"]
             new_body = requested_new_body or selected_draft["body"]
 
-            update_gmail_draft(
+            updated_draft = _update_and_verify_draft(
                 access_token=access_token,
+                draft=selected_draft,
                 body=new_body,
                 subject=new_subject,
                 recipient_email=new_recipient_email,
-                draft_id=selected_draft["draft_id"],
             )
-
-            updated_draft = {
-                **selected_draft,
-                "to": new_recipient_email,
-                "subject": new_subject,
-                "body": new_body,
-            }
 
             create_tool_state(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 session=session,
-                state_type="gmail_update_draft_active",
+                state_type="gmail_active_draft",
                 payload={"active_draft": updated_draft},
             )
 
@@ -447,26 +500,19 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
 
 
                 
-                update_gmail_draft(
+                updated_draft = _update_and_verify_draft(
                     access_token=access_token,
+                    draft=selected_draft,
                     body=new_body,
                     subject=new_subject,
                     recipient_email=new_recipient_email,
-                    draft_id=emails_found[0]["draft_id"],
-                    )
-                
-                updated_draft = {
-                    **selected_draft,
-                    "to": new_recipient_email,
-                    "subject": new_subject,
-                    "body": new_body,
-                }
+                )
 
                 create_tool_state(
                     user_id=user_id,
                     conversation_id=conversation_id,
                     session=session,
-                    state_type="gmail_update_draft_active",
+                    state_type="gmail_active_draft",
                     payload={"active_draft": updated_draft},
                 )
 

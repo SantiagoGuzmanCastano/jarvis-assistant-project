@@ -1,10 +1,31 @@
-from fastapi import HTTPException, status
 from google import genai
 from google.genai import errors, types
+
 from app.core.config import settings
 from app.core.errors import AppError
 
-def generate_gemini_response(messages,system_prompt):
+
+def _get_gemini_response_text(response) -> str:
+    try:
+        response_text = response.text
+    except (AttributeError, ValueError) as error:
+        raise AppError(
+            code="external_provider_invalid_response",
+            message="Gemini returned an empty response.",
+            status_code=502,
+        ) from error
+
+    if not isinstance(response_text, str) or not response_text.strip():
+        raise AppError(
+            code="external_provider_invalid_response",
+            message="Gemini returned an empty response.",
+            status_code=502,
+        )
+
+    return response_text
+
+
+def generate_gemini_response(messages, system_prompt):
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:
@@ -12,17 +33,15 @@ def generate_gemini_response(messages,system_prompt):
             model="gemini-3.1-flash-lite",
             contents=messages,
             config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
+                system_instruction=system_prompt,
             ),
-)
-
+        )
     except errors.ServerError as error:
         raise AppError(
             code="external_provider_unavailable",
             message="Gemini is temporarily unavailable.",
             status_code=503,
         ) from error
-    
     except errors.ClientError as error:
         raise AppError(
             code="external_provider_error",
@@ -30,10 +49,13 @@ def generate_gemini_response(messages,system_prompt):
             status_code=502,
         ) from error
 
-    return response.text
+    return _get_gemini_response_text(response)
 
 
-def generate_gemini_intent_response(conversation_content: str,system_intent_prompt: str) -> str:
+def generate_gemini_intent_response(
+    conversation_content: str,
+    system_intent_prompt: str,
+) -> str:
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:
@@ -41,17 +63,15 @@ def generate_gemini_intent_response(conversation_content: str,system_intent_prom
             model="gemini-3.1-flash-lite",
             contents=conversation_content,
             config=types.GenerateContentConfig(
-            system_instruction=system_intent_prompt,
+                system_instruction=system_intent_prompt,
             ),
-)
-
+        )
     except errors.ServerError as error:
         raise AppError(
             code="external_provider_unavailable",
             message="Gemini is temporarily unavailable.",
             status_code=503,
         ) from error
-    
     except errors.ClientError as error:
         raise AppError(
             code="external_provider_error",
@@ -59,4 +79,4 @@ def generate_gemini_intent_response(conversation_content: str,system_intent_prom
             status_code=502,
         ) from error
 
-    return response.text
+    return _get_gemini_response_text(response)

@@ -116,7 +116,12 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
 
 @patch("app.tools.external.gmail.draft_reading.delete_tool_state")
 @patch("app.tools.external.gmail.draft_reading.get_tool_payload")
-def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
+@patch("app.tools.external.gmail.draft_reading.create_tool_state")
+def test_selected_position_returns_saved_draft_and_sets_active_draft(
+    create_state_mock: Mock,
+    get_payload_mock: Mock,
+    delete_state_mock: Mock,
+) -> None:
     session = Mock()
     drafts = [
         _gmail_draft(
@@ -169,6 +174,116 @@ def test_selected_position_returns_saved_draft_and_clears_state(get_payload_mock
         conversation_id=11,
         session=session,
         state_type="gmail_read_specific_draft_selection",
+    )
+    delete_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={"active_draft": drafts[1]},
+    )
+
+
+@patch("app.tools.external.gmail.draft_reading.create_tool_state")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.fetch_specific_gmail_drafts_full")
+@patch("app.tools.external.gmail.draft_reading.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_reading.build_gmail_query")
+def test_single_draft_search_sets_active_draft(
+    build_query_mock: Mock,
+    access_token_mock: Mock,
+    fetch_drafts_mock: Mock,
+    delete_state_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    draft = _gmail_draft(
+        position=1,
+        draft_id="draft-1",
+        to="lina@example.com",
+        subject="Factura",
+        date="2026-01-15T10:00:00-05:00",
+        snippet="Factura.",
+        body="Contenido.",
+    )
+    build_query_mock.return_value = "to:lina@example.com factura"
+    access_token_mock.return_value = "access-token"
+    fetch_drafts_mock.return_value = {
+        "drafts": [draft],
+        "returned_count": 1,
+        "has_more": False,
+    }
+
+    result = gmail_read_specific_draft_tool(
+        arguments={"recipient_hint": ["Lina"]},
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={"active_draft": draft},
+    )
+    delete_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+    )
+
+
+@patch("app.tools.external.gmail.draft_reading.create_tool_state")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.format_gmail_draft_full")
+@patch("app.tools.external.gmail.draft_reading.fetch_gmail_draft_full")
+@patch("app.tools.external.gmail.draft_reading.fetch_gmail_drafts")
+@patch("app.tools.external.gmail.draft_reading.get_valid_google_access_token")
+def test_recent_draft_read_sets_active_draft(
+    access_token_mock: Mock,
+    fetch_drafts_mock: Mock,
+    fetch_full_draft_mock: Mock,
+    format_draft_mock: Mock,
+    delete_state_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    draft = _gmail_draft(
+        position=2,
+        draft_id="draft-2",
+        to="lina@example.com",
+        subject="Factura febrero",
+        date="2026-02-15T10:00:00-05:00",
+        snippet="Factura febrero.",
+        body="Contenido febrero.",
+    )
+    access_token_mock.return_value = "access-token"
+    fetch_drafts_mock.return_value = [{"id": "draft-2"}, {"id": "draft-1"}]
+    fetch_full_draft_mock.return_value = {"id": "draft-2"}
+    format_draft_mock.return_value = draft
+
+    result = gmail_read_specific_draft_tool(
+        arguments={"recent_result_position": 2},
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={"active_draft": draft},
     )
     delete_state_mock.assert_called_once_with(
         user_id=7,
