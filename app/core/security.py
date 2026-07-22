@@ -8,6 +8,11 @@ import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
 
+import hashlib
+import hmac
+
+from app.core.config import settings
+
 
 # 1: HASHEAR CONTRASEÑA
 # CryptContext configura el algoritmo de hashing que se va a usar
@@ -44,6 +49,28 @@ def create_access_token(user_id: int) -> str:
     )
 
 
+def create_refresh_token(user_id: int) -> str:
+    issued_at = datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(
+        days=settings.refresh_token_expire_days
+    )
+
+    payload = {
+        "sub": str(user_id),
+        "iat": issued_at,
+        "exp": expires_at,
+        "type": "refresh",
+    }
+
+    return jwt.encode(
+        payload,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_alrogithm,
+    )
+
+    
+    # devolvemos el tok
+
 def decode_token(token: str) -> int | None:
     try:
         payload = jwt.decode(
@@ -64,3 +91,33 @@ def decode_token(token: str) -> int | None:
 
     except (jwt.PyJWTError, TypeError, ValueError):
         return None
+    
+
+
+def decode_refresh_token(token: str) -> int | None:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_alrogithm],
+        )
+
+        if payload.get("type") != "refresh":
+            return None
+
+        subject = payload.get("sub")
+
+        if subject is None:
+            return None
+
+        return int(subject)
+
+    except (jwt.PyJWTError, TypeError, ValueError):
+        return None
+
+def hash_refresh_token(refresh_token: str) -> str:
+    return hmac.new(
+        settings.refresh_token_hash_key.encode("utf-8"),
+        refresh_token.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()

@@ -1,6 +1,6 @@
 # Jarvis Assistant
 
-Jarvis is a learning-focused FastAPI backend for a conversational assistant. It combines PostgreSQL, JWT authentication, Gemini, Google OAuth, and Gmail actions. Flutter is intentionally deferred to Phase 10 while the backend contracts are stabilized.
+Jarvis is a learning-focused FastAPI backend for a conversational assistant. It combines PostgreSQL, JWT authentication, Gemini, Google OAuth, and Gmail actions. Phase 8 introduces the Flutter MVP after the backend contracts are stabilized.
 
 ## Current status
 
@@ -12,9 +12,9 @@ Completed:
 
 Next priority:
 
-- Phase 8: Persistent Memory.
+- Phase 8: Flutter App MVP. The renewable JWT session foundation is complete.
 
-Out of scope for this phase: Flutter, Calendar, persistent memory, voice, Docker/CI, and new integrations.
+Out of scope for this phase: Calendar, persistent memory, voice, Docker/CI, and new integrations.
 
 ## Architecture
 
@@ -65,6 +65,13 @@ Application errors use this HTTP response shape:
 ```
 
 Services and repositories raise `AppError` for business failures. FastAPI dependencies and global handlers remain the HTTP boundary.
+
+## Renewable sessions
+
+Login returns a short-lived access token and a rotating refresh token. Refresh
+token hashes are stored in PostgreSQL so sessions can be revoked on login,
+rotation, and logout. Read the complete endpoint and client contract in
+[docs/auth-session-refresh.md](docs/auth-session-refresh.md).
 
 ## Local setup
 

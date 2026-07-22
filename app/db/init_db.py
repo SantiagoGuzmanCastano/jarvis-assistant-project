@@ -17,6 +17,7 @@ from app.models.message import Message
 from app.models.user_settings import UserSettings
 from app.models.external_account import ExternalAccount
 from app.models.generic_tool_state import ConversationToolState
+from app.models.refresh_session import RefreshSession
 
 
 def create_db_tables():

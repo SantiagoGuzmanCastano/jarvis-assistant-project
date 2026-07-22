@@ -13,6 +13,7 @@ from app.models.generic_tool_state import ConversationToolState
 from app.models.message import Message
 from app.models.user import User
 from app.models.user_settings import UserSettings
+from app.models.refresh_session import RefreshSession
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

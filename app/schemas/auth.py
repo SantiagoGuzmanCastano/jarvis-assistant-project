@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=72)
+    password: str = Field(min_length=8, max_length=25)
 
 class UserRegisterResponse(BaseModel):
     id: int
@@ -17,4 +17,13 @@ class UserLogin(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token:str
+    refresh_token:str
     token_type:str
+
+class RefreshTokenResponse(BaseModel):
+    access_token:str
+    refresh_token:str
+    token_type:str
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token:str

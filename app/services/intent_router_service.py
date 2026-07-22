@@ -4,15 +4,15 @@ from app.services.intent_router import build_intent_input, build_tool_intent_pro
 from app.services.intent_router_parser import parse_tool_intent_response
 
 
-def detect_tool_intent(
-    last_message_content: str,
-    recent_messages_content_list: list,
-) -> ToolIntent:
+def detect_tool_intent(last_message_content: str,recent_messages_content_list: list,) -> ToolIntent:
+
     system_intent_prompt = build_tool_intent_prompt()
+
     conversation_content = build_intent_input(
         last_message_content=last_message_content,
         recent_messages_content_list=recent_messages_content_list,
     )
+    
     tool_response = generate_gemini_intent_response(
         conversation_content=conversation_content,
         system_intent_prompt=system_intent_prompt,
