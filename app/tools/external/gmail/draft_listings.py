@@ -68,6 +68,7 @@ def gmail_search_drafted_emails_tool(
         access_token=access_token,
         max_results=max_results,
         query=query,
+        search_keywords=search_keywords,
     )
 
     drafts = draft_results.get("drafts", [])

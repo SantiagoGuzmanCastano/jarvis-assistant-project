@@ -4,7 +4,10 @@ from app.tools.external.gmail.draft_listings import (
     gmail_get_drafted_emails_tool,
     gmail_search_drafted_emails_tool,
 )
-from app.tools.external.gmail.sent_email_listings import gmail_get_sent_emails_tool
+from app.tools.external.gmail.sent_email_listings import (
+    gmail_get_sent_emails_tool,
+    gmail_search_sent_emails_tool,
+)
 
 
 @patch("app.tools.external.gmail.draft_listings.fetch_specific_gmail_drafts")
@@ -121,6 +124,7 @@ def test_search_drafted_emails_uses_recipient_search_arguments(
         access_token="access-token",
         max_results=5,
         query="to:lina@example.com factura",
+        search_keywords=["factura"],
     )
     assert result == {"drafts": [], "returned_count": 0}
 
@@ -253,3 +257,65 @@ def test_get_sent_emails_uses_max_results_arguments(
         max_results=5,
     )
     assert result == {"emails": [], "returned_count": 0}
+
+
+@patch(
+    "app.tools.external.gmail.sent_email_listings.create_tool_state"
+)
+@patch(
+    "app.tools.external.gmail.sent_email_listings.fetch_specific_sent_gmail_messages"
+)
+@patch(
+    "app.tools.external.gmail.sent_email_listings.get_valid_google_access_token"
+)
+def test_search_sent_emails_stores_reusable_selection(
+    access_token_mock: Mock,
+    fetch_sent_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    access_token_mock.return_value = "access-token"
+    fetch_sent_mock.return_value = {
+        "emails": [
+            {
+                "message_id": "sent-1",
+                "thread_id": "thread-sent-1",
+                "recipient": "ana@example.com",
+                "subject": "Meeting",
+                "date": "2026-07-29",
+                "date_iso": "2026-07-29",
+                "snippet": "Meeting tomorrow",
+            }
+        ],
+        "returned_count": 1,
+        "has_more": False,
+        "next_page_token": None,
+    }
+
+    result = gmail_search_sent_emails_tool(
+        arguments={
+            "recipient_hint": ["Ana"],
+            "search_keywords": ["meeting"],
+            "max_results": 5,
+        },
+        user_id=7,
+        session=session,
+        conversation_id=11,
+    )
+
+    assert result["emails"][0]["position"] == 1
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        state_type="gmail_sent_email_selection",
+        payload={
+            "emails": result["emails"],
+            "search_arguments": {
+                "start_date": None,
+                "end_date": None,
+                "recipient_hint": ["Ana"],
+                "search_keywords": ["meeting"],
+            },
+        },
+        session=session,
+    )

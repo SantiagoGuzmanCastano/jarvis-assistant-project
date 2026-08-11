@@ -5,8 +5,10 @@ from app.tools.external.gmail.received_email_listings import (
     get_unread_emails_tool,
     gmail_search_email_message_tool,
 )
+from app.tools.registry import TOOLS
 
 
+@patch("app.tools.external.gmail.received_email_listings.create_tool_state")
 @patch("app.tools.external.gmail.received_email_listings.format_gmail_message_metadata")
 @patch("app.tools.external.gmail.received_email_listings.fetch_unread_gmail_messages")
 @patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
@@ -16,12 +18,18 @@ def test_get_unread_emails_uses_email_search_arguments(
     access_token_mock: Mock,
     fetch_unread_mock: Mock,
     format_messages_mock: Mock,
+    create_state_mock: Mock,
 ) -> None:
     session = Mock()
     build_query_mock.return_value = "is:unread from:ana@example.com"
     access_token_mock.return_value = "access-token"
     fetch_unread_mock.return_value = {
-        "emails": [{"id": "message-1"}],
+        "emails": [
+            {
+                "id": "message-1",
+                "threadId": "thread-1",
+            }
+        ],
         "has_more": False,
         "next_page_token": None,
     }
@@ -39,6 +47,7 @@ def test_get_unread_emails_uses_email_search_arguments(
         },
         user_id=7,
         session=session,
+        conversation_id=11,
     )
 
     build_query_mock.assert_called_once_with(
@@ -55,8 +64,39 @@ def test_get_unread_emails_uses_email_search_arguments(
         query="is:unread from:ana@example.com",
     )
     assert result["returned_count"] == 1
+    assert result["emails"][0]["position"] == 1
+    assert (
+        TOOLS["get_unread_emails"]["requires_conversation_id"]
+        is True
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        state_type="gmail_email_selection",
+        payload={
+            "emails": [
+                {
+                    "position": 1,
+                    "message_id": "message-1",
+                    "thread_id": "thread-1",
+                    "sender": "ana@example.com",
+                    "subject": "Factura",
+                    "date": "",
+                    "snippet": "",
+                }
+            ],
+            "search_arguments": {
+                "start_date": "2026-01-01",
+                "end_date": "2026-02-01",
+                "sender_hint": ["Ana"],
+                "search_keywords": ["factura"],
+            },
+        },
+        session=session,
+    )
 
 
+@patch("app.tools.external.gmail.received_email_listings.create_tool_state")
 @patch("app.tools.external.gmail.received_email_listings.format_gmail_message_metadata")
 @patch("app.tools.external.gmail.received_email_listings.fetch_latest_gmail_messages")
 @patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
@@ -64,11 +104,17 @@ def test_get_latest_emails_uses_max_results_arguments(
     access_token_mock: Mock,
     fetch_latest_mock: Mock,
     format_messages_mock: Mock,
+    create_state_mock: Mock,
 ) -> None:
     session = Mock()
     access_token_mock.return_value = "access-token"
     fetch_latest_mock.return_value = {
-        "emails": [{"id": "message-1"}],
+        "emails": [
+            {
+                "id": "message-1",
+                "threadId": "thread-1",
+            }
+        ],
         "returned_count": 1,
         "has_more": True,
         "next_page_token": "next-page-token",
@@ -81,6 +127,7 @@ def test_get_latest_emails_uses_max_results_arguments(
         arguments={"max_results": 5},
         user_id=7,
         session=session,
+        conversation_id=11,
     )
 
     fetch_latest_mock.assert_called_once_with(
@@ -89,8 +136,39 @@ def test_get_latest_emails_uses_max_results_arguments(
     )
     assert result["returned_count"] == 1
     assert result["next_page_token"] == "next-page-token"
+    assert result["emails"][0]["position"] == 1
+    assert (
+        TOOLS["get_latest_emails"]["requires_conversation_id"]
+        is True
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        state_type="gmail_email_selection",
+        payload={
+            "emails": [
+                {
+                    "position": 1,
+                    "message_id": "message-1",
+                    "thread_id": "thread-1",
+                    "sender": "ana@example.com",
+                    "subject": "Factura",
+                    "date": "",
+                    "snippet": "",
+                }
+            ],
+            "search_arguments": {
+                "start_date": None,
+                "end_date": None,
+                "sender_hint": [],
+                "search_keywords": [],
+            },
+        },
+        session=session,
+    )
 
 
+@patch("app.tools.external.gmail.received_email_listings.create_tool_state")
 @patch("app.tools.external.gmail.received_email_listings.fetch_specific_gmail_message_format_FSD")
 @patch("app.tools.external.gmail.received_email_listings.get_valid_google_access_token")
 @patch("app.tools.external.gmail.received_email_listings.build_gmail_query")
@@ -98,12 +176,23 @@ def test_search_email_message_uses_email_search_arguments(
     build_query_mock: Mock,
     access_token_mock: Mock,
     fetch_messages_mock: Mock,
+    create_state_mock: Mock,
 ) -> None:
     session = Mock()
     build_query_mock.return_value = "from:ana@example.com factura"
     access_token_mock.return_value = "access-token"
     fetch_messages_mock.return_value = {
-        "emails": [{"message_id": "message-1", "subject": "Factura"}],
+        "emails": [
+            {
+                "message_id": "message-1",
+                "thread_id": "thread-1",
+                "sender": "Ana <ana@example.com>",
+                "subject": "Factura",
+                "date": "Wed, 29 Jul 2026 10:00:00 -0500",
+                "date_iso": "2026-07-29",
+                "snippet": "Factura de julio.",
+            }
+        ],
         "returned_count": 1,
         "has_more": False,
     }
@@ -116,6 +205,7 @@ def test_search_email_message_uses_email_search_arguments(
         },
         user_id=7,
         session=session,
+        conversation_id=11,
     )
 
     build_query_mock.assert_called_once_with(
@@ -132,3 +222,34 @@ def test_search_email_message_uses_email_search_arguments(
         max_results=5,
     )
     assert result["returned_count"] == 1
+    assert result["emails"][0]["position"] == 1
+    assert (
+        TOOLS["gmail_search_email_message"]["requires_conversation_id"]
+        is True
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        state_type="gmail_email_selection",
+        payload={
+            "emails": [
+                {
+                    "message_id": "message-1",
+                    "thread_id": "thread-1",
+                    "sender": "Ana <ana@example.com>",
+                    "subject": "Factura",
+                    "date": "Wed, 29 Jul 2026 10:00:00 -0500",
+                    "date_iso": "2026-07-29",
+                    "snippet": "Factura de julio.",
+                    "position": 1,
+                }
+            ],
+            "search_arguments": {
+                "start_date": None,
+                "end_date": None,
+                "sender_hint": ["Ana"],
+                "search_keywords": ["factura"],
+            },
+        },
+        session=session,
+    )

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, update
 from sqlalchemy.orm import Session
 from app.core.config import settings
 
@@ -21,12 +21,31 @@ def create_conversation(user_id: int, title: str, session: Session):
     return new_conversation
 
 
-def get_user_conversations(user_id: int, session: Session):
-    
-    query = select(Conversation).where(Conversation.user_id==user_id).order_by(Conversation.created_at.desc())
-    conversations_list = session.scalars(query).all()
+def get_user_conversations(user_id: int, session: Session, limit: int, before_id: int | None):
+    query = select(Conversation).where(Conversation.user_id == user_id)
+    if before_id is not None:
+        query = query.where(Conversation.id < before_id)
+    return session.scalars(query.order_by(Conversation.id.desc()).limit(limit + 1)).all()
 
-    return conversations_list
+def update_conversation_title(
+    *,
+    user_id: int,
+    conversation_id: int,
+    title: str,
+    session: Session,
+    title_changed_by_user: bool | None = None,
+):
+    values = {"title": title}
+    if title_changed_by_user is not None:
+        values["title_changed_by_user"] = title_changed_by_user
+
+    session.execute(
+        update(Conversation)
+        .where(Conversation.user_id == user_id, Conversation.id == conversation_id)
+        .values(**values)
+    )
+    session.commit()
+    return get_user_conversation_by_id(user_id=user_id, conversation_id=conversation_id, session=session)
 
 
 def get_user_conversation_by_id(user_id: int, conversation_id: int, session: Session):

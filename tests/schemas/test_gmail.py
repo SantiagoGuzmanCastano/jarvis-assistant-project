@@ -29,6 +29,20 @@ def test_read_specific_email_arguments_rejects_invalid_position() -> None:
     assert error_info.value.errors()[0]["loc"] == ("selected_result_position",)
 
 
+def test_read_specific_email_arguments_accepts_active_selection() -> None:
+    arguments = ReadSpecificEmailArguments(selection_source="active")
+
+    assert arguments.selection_source == "active"
+
+
+def test_read_specific_email_active_selection_rejects_filters() -> None:
+    with pytest.raises(ValidationError):
+        ReadSpecificEmailArguments(
+            selection_source="active",
+            sender_hint=["Ana"],
+        )
+
+
 def test_create_draft_arguments_requires_complete_valid_draft() -> None:
     with pytest.raises(ValidationError) as error_info:
         CreateDraftArguments(

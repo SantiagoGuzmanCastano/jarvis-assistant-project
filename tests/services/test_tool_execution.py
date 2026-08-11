@@ -6,6 +6,8 @@ from app.core.errors import AppError
 from app.schemas.tools.gmail import CreateDraftArguments, EmailSearchArguments
 from app.schemas.tools.gmail_results import CurrentTimeResult
 from app.services import tool_execution
+from app.tools.catalog import TOOL_DESCRIPTIONS
+from app.tools.registry import TOOLS
 
 
 @pytest.mark.parametrize(
@@ -92,6 +94,58 @@ def test_action_tool_contexts_use_the_success_result_field(
     context = tool_execution.build_tool_context(tool_name, {"success": True})
 
     assert f"If success is true, {expected_action}." in context
+
+
+def test_tools_info_returns_the_complete_registered_catalog() -> None:
+    result = tool_execution.tool_execution_system(
+        tool_name="get_tools_info",
+        arguments={"tools": True},
+        user_id=7,
+        session=Mock(),
+        conversation_id=11,
+    )
+
+    returned_names = [item["name"] for item in result["tools"]]
+
+    assert result["returned_count"] == len(TOOLS)
+    assert returned_names == list(TOOLS)
+    assert set(TOOL_DESCRIPTIONS) == set(TOOLS)
+
+
+def test_tools_info_rejects_false_argument() -> None:
+    with pytest.raises(AppError) as error_info:
+        tool_execution.tool_execution_system(
+            tool_name="get_tools_info",
+            arguments={"tools": False},
+            user_id=7,
+            session=Mock(),
+            conversation_id=11,
+        )
+
+    assert error_info.value.code == "invalid_tool_arguments"
+    assert error_info.value.status_code == 422
+
+
+def test_tools_info_context_requires_user_facing_paraphrases() -> None:
+    context = tool_execution.build_tool_context(
+        "get_tools_info",
+        {
+            "tools": [
+                {
+                    "name": "get_current_time",
+                    "description": TOOL_DESCRIPTIONS["get_current_time"],
+                }
+            ],
+            "returned_count": 1,
+        },
+    )
+
+    assert "complete and only source of truth" in context
+    assert "Do not expose literal backend tool names" in context
+    assert "Paraphrase and consolidate related tools" in context
+    assert "Mention general AI capabilities separately" in context
+    assert "Do not add Google Drive" in context
+    assert "Do not claim access to live internet search" in context
 
 
 def test_tool_execution_validates_and_normalizes_arguments(

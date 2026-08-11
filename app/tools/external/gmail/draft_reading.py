@@ -15,6 +15,34 @@ from app.repositories.conversation import (
 from app.services.external_auth_service import get_valid_google_access_token
 
 
+DRAFT_SELECTION_STATE = "gmail_draft_selection"
+LEGACY_DRAFT_SELECTION_STATE = "gmail_read_specific_draft_selection"
+
+
+def _load_draft_selection_payload(
+    *,
+    user_id: int,
+    conversation_id: int,
+    session: Session,
+) -> dict | None:
+    payload = get_tool_payload(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type=DRAFT_SELECTION_STATE,
+    )
+    if isinstance(payload, dict):
+        return payload
+
+    legacy_payload = get_tool_payload(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type=LEGACY_DRAFT_SELECTION_STATE,
+    )
+    return legacy_payload if isinstance(legacy_payload, dict) else None
+
+
 def _save_active_draft(
     *,
     user_id: int,
@@ -138,11 +166,10 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
                 "has_more": False,
             }
 
-        tool_payload = get_tool_payload(
+        tool_payload = _load_draft_selection_payload(
             user_id=user_id,
             conversation_id=conversation_id,
             session=session,
-            state_type="gmail_read_specific_draft_selection",
         )
 
         if (
@@ -173,7 +200,45 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
                 "has_more": False,
             }
 
-        selected_draft = drafts_to_choose[selected_result_position - 1]
+        selected_candidate = drafts_to_choose[
+            selected_result_position - 1
+        ]
+        if not isinstance(selected_candidate, dict):
+            return {
+                "success": False,
+                "reason": "invalid_selected_draft",
+                "message": "The selected draft data is invalid.",
+                "drafts": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if isinstance(selected_candidate.get("body"), str):
+            selected_draft = selected_candidate
+        else:
+            draft_id = selected_candidate.get("draft_id")
+            if not isinstance(draft_id, str) or not draft_id:
+                return {
+                    "success": False,
+                    "reason": "invalid_selected_draft",
+                    "message": "The selected draft has no valid ID.",
+                    "drafts": [],
+                    "returned_count": 0,
+                    "has_more": False,
+                }
+
+            access_token = get_valid_google_access_token(
+                user_id=user_id,
+                session=session,
+            )
+            selected_draft = format_gmail_draft_full(
+                draft=fetch_gmail_draft_full(
+                    draft_id=draft_id,
+                    access_token=access_token,
+                ),
+                position=selected_result_position,
+            )
+
         delete_tool_state(
             user_id=user_id,
             conversation_id=conversation_id,
@@ -194,11 +259,10 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         }
 
     if reuse_previous_search:
-        tool_payload = get_tool_payload(
+        tool_payload = _load_draft_selection_payload(
             user_id=user_id,
             conversation_id=conversation_id,
             session=session,
-            state_type="gmail_read_specific_draft_selection",
         )
 
         search_arguments = (
@@ -260,6 +324,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
         access_token=access_token,
         max_results=max_results,
         query=query,
+        search_keywords=search_keywords,
     )
     drafts_found = draft_results["drafts"]
 
@@ -302,7 +367,7 @@ def gmail_read_specific_draft_tool(arguments: dict, session: Session, user_id: i
     create_tool_state(
         user_id=user_id,
         conversation_id=conversation_id,
-        state_type="gmail_read_specific_draft_selection",
+        state_type=DRAFT_SELECTION_STATE,
         payload={
             "drafts": drafts_found,
             "search_arguments": {

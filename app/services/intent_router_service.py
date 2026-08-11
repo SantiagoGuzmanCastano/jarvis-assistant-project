@@ -1,7 +1,12 @@
+import logging
+
 from app.integrations.gemini_client import generate_gemini_intent_response
 from app.schemas.intent_router import ToolIntent
 from app.services.intent_router import build_intent_input, build_tool_intent_prompt
 from app.services.intent_router_parser import parse_tool_intent_response
+
+
+logger = logging.getLogger(__name__)
 
 
 def detect_tool_intent(last_message_content: str,recent_messages_content_list: list,) -> ToolIntent:
@@ -25,8 +30,13 @@ def detect_tool_intent(last_message_content: str,recent_messages_content_list: l
         print("--------------------------------------------------------")
         print(f"{role}: {text}")
     print("--------------------------------------------------------")
-    print("\nRAW TOOL RESPONSE:", tool_response)
+    print("\nRAW TOOL RESPONSE:",)
+    print(f"\n{tool_response}")
     print("END RAW TOOL RESPONSE")
     print("\n")
 
-    return parse_tool_intent_response(response_text=tool_response)
+    try:
+        return parse_tool_intent_response(response_text=tool_response)
+    except ValueError:
+        logger.exception("Gemini returned an invalid tool intent.")
+        raise

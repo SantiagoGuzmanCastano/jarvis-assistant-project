@@ -4,6 +4,21 @@
 from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
+
+def build_gmail_keyword_fallback_query(
+    query: str,
+    search_keywords: list[str] | None,
+) -> str | None:
+    if not search_keywords:
+        return None
+
+    keyword_clause = f"({' OR '.join(search_keywords)})"
+    if not query.endswith(keyword_clause):
+        return None
+
+    return query.removesuffix(keyword_clause).rstrip()
+
+
 def build_gmail_query(search_scope: str, start_date: str | None, end_date:str | None, search_keywords: list[str] | None, sender_hint: list[str] | None = None, recipient_hint: list[str] | None = None,) -> str:
 #"(from:Hernán OR from:Hernan) (reunión OR reunion OR reuniones) after:YYYY-MM-DD before:YYYY-MM-DD"
 

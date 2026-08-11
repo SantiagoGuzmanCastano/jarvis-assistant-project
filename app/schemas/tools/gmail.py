@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class GmailSearchFilters(BaseModel):
@@ -33,8 +33,27 @@ class ReadLatestEmailArguments(MaxResultsArguments):
 
 
 class ReadSpecificEmailArguments(EmailSearchArguments):
+    selection_source: Literal["active"] | None = None
     requested_result_count: int = Field(default=1, ge=1, le=15)
     selected_result_position: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_active_selection(self):
+        if self.selection_source != "active":
+            return self
+
+        if (
+            self.selected_result_position is not None
+            or self.sender_hint
+            or self.search_keywords
+            or self.start_date is not None
+            or self.end_date is not None
+        ):
+            raise ValueError(
+                "active selection does not accept positions or filters"
+            )
+
+        return self
 
 
 class ReadSpecificDraftArguments(RecipientSearchArguments):
@@ -68,6 +87,7 @@ class SendDraftArguments(RecipientSearchArguments):
 
 
 class MoveEmailToTrashArguments(EmailSearchArguments):
+    selection_source: Literal["active", "recent", "search"] | None = None
     requested_result_count: int = Field(default=1, ge=1, le=15)
     selected_result_position: int | None = Field(default=None, ge=1)
     recent_result_position: int | None = Field(default=None, ge=1)
@@ -99,9 +119,7 @@ class UpdateDraftArguments(RecipientSearchArguments):
 
 
 class CreateReplyDraftArguments(EmailSearchArguments):
+    selection_source: Literal["active", "recent", "search"] | None = None
     reply_body: str | None = Field(default=None, min_length=1)
     selected_result_position: int | None = Field(default=None, ge=1)
     recent_result_position: int | None = Field(default=None, ge=1)
-
-
-

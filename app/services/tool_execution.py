@@ -88,6 +88,369 @@ def build_tool_context(tool_name: str, tool_result: dict) -> str:
         - Use Tool result only to answer the user's request.
     """
 
+    if tool_name == "get_tools_info":
+        return f"""
+            Jarvis's internal tool catalog was requested.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            - Treat tool_result as the complete and only source of truth.
+            - Respond in the same language as the user.
+            - Do not expose literal backend tool names such as get_current_time,
+              get_tools_info, gmail_*, or calendar_*.
+            - Do not present one bullet per backend tool.
+            - Paraphrase and consolidate related tools into clear user-facing
+              capabilities grouped by service, such as Gmail and Google Calendar.
+            - Mention general AI capabilities separately: conversation,
+              explanations, writing, summarization, translation, analysis, and
+              brainstorming.
+            - Do not describe returned_count as the number of user-facing
+              capabilities because several backend tools represent one broader
+              capability.
+            - Base every connected capability only on the supplied descriptions.
+            - Do not add Google Drive, web search, Maps, travel, YouTube, or any
+              other capability absent from tools.
+            - Do not claim access to live internet search.
+            - Do not claim that any external action was executed.
+            - Keep the response concise, natural, and easy to scan.
+        """
+
+    if tool_name == "calendar_find_free_slots":
+        return f"""
+            A Google Calendar free-slot tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Clearly describe the requested range, timezone, and requested duration.
+            - If free_slots is empty, state that no free window long enough was found in that range.
+            - If free slots were returned, list every free window in its existing order.
+            - For each window, show start_date, end_date, and available_duration_minutes.
+            - Explain that each result is a maximal free window that can fit the requested duration, not a scheduled event.
+            - Do not claim that Calendar was modified or that an event was created.
+            - Do not invent availability outside the returned range.
+            - Do not expose calendar_id or other technical identifiers.
+            - Keep the response concise and easy to scan.
+        """
+
+    if tool_name == "calendar_update_event":
+        if tool_result.get("requires_selection") is True:
+            return f"""
+                A Google Calendar event update search was executed.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that no event has been updated.
+                - List every matching event in its existing order using position, title, start_date, end_date, and location when present.
+                - Ask the user to select exactly one event by its displayed position.
+                - If has_more is true, explain that additional matches exist and the user may narrow the search.
+                - Do not expose event_id, calendar_id, or other technical identifiers.
+                - Keep the response concise and easy to scan.
+            """
+
+        if tool_result.get("requires_confirmation") is True:
+            return f"""
+                A Google Calendar event update was prepared but not applied.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that Google Calendar has not been modified yet.
+                - Show only the fields named in updated_fields, comparing their current and proposed values.
+                - Include the final proposed start_date, end_date, and timezone whenever either date changes.
+                - Ask for an explicit confirmation before applying the update.
+                - Do not claim that attendees or notifications will be changed.
+                - Do not expose event_id, calendar_id, state types, or technical identifiers.
+                - Keep the response concise and easy to scan.
+            """
+
+        if tool_result.get("success") is True:
+            return f"""
+                A Google Calendar event was updated successfully.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Confirm that the event was updated in Google Calendar.
+                - Mention only the fields listed in updated_fields and their final values.
+                - Include html_link when present.
+                - Do not claim that invitations or notifications were sent.
+                - Do not expose event_id, calendar_id, or other technical identifiers.
+                - Keep the response concise.
+            """
+
+        return f"""
+            A Google Calendar event was not updated.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Explain the reason naturally and request only the information needed to continue.
+            - If the selected position is invalid, ask the user to choose a valid displayed position.
+            - If no pending update exists, explain that a new event update must first be prepared.
+            - Do not claim that Google Calendar was modified.
+            - Do not expose event_id, calendar_id, state types, or technical identifiers.
+            - Keep the response concise.
+        """
+
+    if tool_name == "calendar_delete_event":
+        if tool_result.get("requires_selection") is True:
+            return f"""
+                A Google Calendar event deletion search was executed.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that no event has been deleted.
+                - List every matching event in its existing order using position, title, start_date, end_date, and location when present.
+                - Ask the user to select exactly one event by its displayed position.
+                - If has_more is true, explain that additional matches exist and the user may narrow the search.
+                - Do not expose event_id, calendar_id, or other technical identifiers.
+                - Keep the response concise and easy to scan.
+            """
+
+        if tool_result.get("requires_confirmation") is True:
+            return f"""
+                A Google Calendar event deletion was prepared but not executed.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that the event has not been deleted.
+                - Present the exact pending event title, start_date, end_date, timezone, and location when present.
+                - Ask for an explicit confirmation before deleting it.
+                - Explain that this removes the event from Google Calendar.
+                - Do not claim that attendees were notified.
+                - Do not expose event_id, calendar_id, state types, or technical identifiers.
+                - Keep the response concise.
+            """
+
+        if tool_result.get("success") is True:
+            return f"""
+                A Google Calendar event was deleted successfully.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Confirm that the exact event in deleted_event was removed from Google Calendar.
+                - Mention its title and date or time range.
+                - Do not claim that attendees were notified.
+                - Do not expose event_id, calendar_id, or other technical identifiers.
+                - Keep the response concise.
+            """
+
+        return f"""
+            A Google Calendar event was not deleted.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Explain the reason naturally and request only the information needed to continue.
+            - If the selected position is invalid, ask the user to choose a valid displayed position.
+            - If no pending deletion exists, explain that a new event deletion must first be prepared.
+            - Do not claim that Google Calendar was modified.
+            - Do not expose event_id, calendar_id, state types, or technical identifiers.
+            - Keep the response concise.
+        """
+
+    if tool_name == "calendar_prepare_event_from_email":
+        if tool_result.get("requires_selection") is True:
+            return f"""
+                A Gmail source search for Calendar preparation found multiple candidates.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that no Calendar event was created or prepared yet.
+                - List every matching source in its existing order using position, contact, subject, date, and snippet when present.
+                - Ask the user to select exactly one source by its displayed position.
+                - If has_more is true, explain that additional matches exist and the user may narrow the search.
+                - Do not expose message IDs, draft IDs, state types, or technical identifiers.
+                - Keep the response concise and easy to scan.
+            """
+
+        if tool_result.get("success") is not True:
+            return f"""
+                A Gmail-to-Calendar event preparation was not completed.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Explain that no Calendar event was created.
+                - Ask for the identifying information needed to resolve one exact email or draft.
+                - Do not expose message IDs, draft IDs, state types, or technical identifiers.
+                - Keep the response concise.
+            """
+
+        if tool_result.get("requires_details") is True:
+            return f"""
+                A Calendar event proposal was extracted from exact Gmail content but is incomplete.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that no Calendar event was created.
+                - Present the extracted title, description, dates, timezone, and location that are present.
+                - Ask only for the fields listed in missing_fields.
+                - Do not invent missing dates, times, durations, or locations.
+                - Do not ask the user to reread the Gmail source.
+                - Do not expose source IDs, state types, or technical identifiers.
+                - Keep the response concise.
+            """
+
+        return f"""
+            A complete Calendar event proposal was extracted from exact Gmail content.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Clearly state that no Calendar event was created yet.
+            - Present the final title, description when present, start_date, end_date, timezone, and location when present.
+            - Ask for an explicit confirmation before creating it.
+            - Do not claim that attendees or notifications will be added.
+            - Do not expose source IDs, state types, or technical identifiers.
+            - Keep the response concise.
+        """
+
+    if tool_name == "calendar_get_upcoming_events":
+        return f"""
+            A Google Calendar upcoming-events tool was executed.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Clearly describe the queried range using range_start, range_end, and timezone.
+            - If no events were returned, state that no events were found in that range.
+            - If events were returned, list every event in its existing order.
+            - For each event, present its title, date or time range, and location when present.
+            - Include description, attendees, or html_link only when useful to answer the user's request.
+            - If title is null, describe it as an event without a title.
+            - When all_day is true, treat end_date as exclusive. A start_date of July 28 and end_date of July 29 represents an all-day event on July 28 only.
+            - If has_more is true, explain that additional events exist outside the returned page and invite the user to request a narrower range.
+            - If has_more is false, do not suggest that hidden events remain in the queried range.
+            - Do not claim that Calendar was modified.
+            - Do not invent events, times, locations, descriptions, attendees, or links.
+            - Do not expose event_id, calendar_id, or other technical identifiers.
+            - Keep the response concise and easy to scan.
+        """
+
+    if tool_name == "calendar_create_event":
+        if tool_result.get("requires_confirmation") is True:
+            return f"""
+                A Google Calendar event was prepared but not created.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Clearly state that the event has not been created yet.
+                - Present the pending event title, description when present, start date, end date, and timezone.
+                - Include location when present.
+                - Ask the user for an explicit confirmation before creating it.
+                - Do not claim that Google Calendar was modified.
+                - Do not mention internal tool names, state types, or technical identifiers.
+                - Keep the response concise.
+            """
+
+        if tool_result.get("success") is True:
+            return f"""
+                A Google Calendar event creation tool was executed successfully.
+
+                Tool result:
+                {tool_result}
+
+                Rules for answering:
+                {external_content_safety_rule}
+                - Treat tool_result as the only source of truth.
+                - Respond in the same language as the user.
+                - Confirm that the event was created in Google Calendar.
+                - Present its title, start date, end date, and timezone.
+                - Include html_link when it is present.
+                - Do not claim that invitations or notifications were sent.
+                - Do not expose event_id, calendar_id, or other technical identifiers.
+                - Keep the response concise.
+            """
+
+        return f"""
+            A Google Calendar event was not created.
+
+            Tool result:
+            {tool_result}
+
+            Rules for answering:
+            {external_content_safety_rule}
+            - Treat tool_result as the only source of truth.
+            - Respond in the same language as the user.
+            - Explain the reason naturally.
+            - If required fields are missing, ask only for those missing fields.
+            - If no pending event exists, explain that a new event proposal must be prepared.
+            - Do not claim that Google Calendar was modified.
+            - Do not expose technical identifiers.
+            - Keep the response concise.
+        """
+
 
     if has_more and returned_count < 15:
         expansion_instruction = (

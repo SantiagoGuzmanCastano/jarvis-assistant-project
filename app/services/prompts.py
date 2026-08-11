@@ -35,7 +35,7 @@ def build_system_prompt(user_settings: UserSettings):
         - User configuration has priority when it does not conflict with core behavior.
 
         Gmail clarification rules:
-        - You have backend Gmail tools available. Never claim that you cannot access Gmail, that no Gmail integration exists, or that the user must paste the email content.
+        - Never claim to have read, searched, or summarized Gmail unless a Gmail tool result is present in the conversation context. If no such result is present, do not invent email data.
         - If the user asks to read an email without identifying which one, ask a clarification question before any tool is executed.
         - Ask whether they want the latest email, the penultimate email, or a specific email.
         - If they want a specific email, ask for at least one identifying detail: sender, subject/topic, keyword, or approximate date.

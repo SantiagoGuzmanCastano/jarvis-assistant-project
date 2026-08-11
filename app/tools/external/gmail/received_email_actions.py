@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.gmail.messages import (
     fetch_latest_gmail_messages,
+    fetch_metadata_FSD_gmail_message,
     fetch_specific_gmail_message_format_FSD,
     move_gmail_message_to_trash,
 )
@@ -24,6 +25,7 @@ def gmail_move_email_to_trash_tool(
     selected_result_position = arguments.get("selected_result_position")
     recent_result_position = arguments.get("recent_result_position")
     reuse_previous_search = arguments.get("reuse_previous_search", False)
+    selection_source = arguments.get("selection_source")
 
     try:
         requested_result_count = int(requested_result_count)
@@ -46,6 +48,68 @@ def gmail_move_email_to_trash_tool(
             "emails": [],
             "returned_count": 0,
             "has_more": False,
+        }
+
+    if selection_source == "active":
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            state_type="gmail_active_email",
+        )
+        active_email = (
+            tool_payload.get("active_email")
+            if isinstance(tool_payload, dict)
+            else None
+        )
+
+        if not isinstance(active_email, dict):
+            return {
+                "success": False,
+                "reason": "missing_active_email",
+                "message": "No active received email was found.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        message_id = active_email.get("message_id")
+        if (
+            active_email.get("source") != "received"
+            or not isinstance(message_id, str)
+            or not message_id
+        ):
+            return {
+                "success": False,
+                "reason": "invalid_active_email_state",
+                "message": "The active email state is invalid.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        access_token = get_valid_google_access_token(
+            user_id=user_id,
+            session=session,
+        )
+        email = fetch_metadata_FSD_gmail_message(
+            message_id=message_id,
+            access_token=access_token,
+        )
+        formatted_email = format_gmail_message_metadata([email])[0]
+        move_gmail_message_to_trash(
+            access_token=access_token,
+            message_id=message_id,
+        )
+        delete_tool_state(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+
+        return {
+            "success": True,
+            "email": formatted_email,
         }
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)

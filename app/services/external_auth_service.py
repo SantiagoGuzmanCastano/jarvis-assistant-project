@@ -8,6 +8,16 @@ from app.integrations.google_oauth import exchange_code_for_tokens, get_google_u
 from app.repositories.external_account import create_external_account, get_external_account_by_user_id_and_provider, list_external_accounts, update_external_account_tokens
 
 
+def _utc_now_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _as_utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def complete_google_oauth(user_id: int, code: str, session: Session):
     token_data = exchange_code_for_tokens(code=code)
 
@@ -28,7 +38,7 @@ def complete_google_oauth(user_id: int, code: str, session: Session):
     expires_at = None
 
     if expires_in is not None:
-        expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+        expires_at = _utc_now_naive() + timedelta(seconds=expires_in)
 
     encrypted_access_token = encrypt_token(access_token)
 
@@ -82,7 +92,11 @@ def get_valid_google_access_token(user_id: int, session: Session):
         )
 
     #si aun no ha expirado el access_token... todavia es util
-    if external_account.expires_at is not None and external_account.expires_at > datetime.now() + timedelta(minutes=1):
+    if (
+        external_account.expires_at is not None
+        and _as_utc_naive(external_account.expires_at)
+        > _utc_now_naive() + timedelta(minutes=1)
+    ):
         return decrypt_token(external_account.encrypted_access_token)
     
     #si no se encontró
@@ -101,11 +115,11 @@ def get_valid_google_access_token(user_id: int, session: Session):
 
     new_access_token = response['access_token']
     expires_in = response.get("expires_in")
-    scopes = response.get("scope")
+    scopes = response.get("scope") or external_account.scopes
 
     expires_at = None
     if expires_in is not None:
-        expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+        expires_at = _utc_now_naive() + timedelta(seconds=expires_in)
 
     encrypted_access_token=encrypt_token(token=new_access_token)
 
@@ -121,6 +135,14 @@ def get_valid_google_access_token(user_id: int, session: Session):
         )
     
     return new_access_token
+
+
+def external_account_has_scopes(
+    external_account,
+    required_scopes: list[str],
+) -> bool:
+    granted_scopes = set((external_account.scopes or "").split())
+    return set(required_scopes).issubset(granted_scopes)
 
 
 def list_current_user_external_accounts(user_id: int, session: Session):

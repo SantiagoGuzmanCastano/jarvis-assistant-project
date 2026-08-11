@@ -20,6 +20,7 @@ def create_refresh_session(user_id:int, token_hash: str, session: Session, expir
 
     return new_refresh_session
 
+
 def get_refresh_session_by_token_hash(token_hash: str, session: Session):
 
     query = select(RefreshSession).where(RefreshSession.token_hash==token_hash)

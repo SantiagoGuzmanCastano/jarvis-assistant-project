@@ -257,6 +257,7 @@ def gmail_delete_draft_tool(
         access_token=access_token,
         max_results=max_results,
         query=query,
+        search_keywords=search_keywords,
     )
     drafts_found = draft_results["drafts"]
 

@@ -464,6 +464,7 @@ def gmail_update_email_draft_tool(user_id: int, session: Session, arguments: dic
                 access_token=access_token,
                 max_results=max_results,
                 query=query,
+                search_keywords=search_keywords,
             )
 
             emails_found = drafts_found['drafts']

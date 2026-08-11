@@ -8,10 +8,39 @@ from sqlalchemy.orm import Session
 from app.integrations.gmail.messages import (
     fetch_full_latest_gmail_messages,
     fetch_full_specific_gmail_messages,
+    fetch_full_specific_gmail_messages_metadata,
 )
 from app.integrations.gmail.search import build_gmail_query
-from app.repositories.conversation import create_tool_state, delete_tool_state, get_tool_payload
+from app.repositories.conversation import create_tool_state, get_tool_payload
 from app.services.external_auth_service import get_valid_google_access_token
+
+
+EMAIL_SELECTION_STATE = "gmail_email_selection"
+LEGACY_EMAIL_SELECTION_STATE = "gmail_read_specific_email_selection"
+
+
+def _load_email_selection_payload(
+    *,
+    user_id: int,
+    conversation_id: int,
+    session: Session,
+) -> dict | None:
+    payload = get_tool_payload(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type=EMAIL_SELECTION_STATE,
+    )
+    if isinstance(payload, dict):
+        return payload
+
+    legacy_payload = get_tool_payload(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type=LEGACY_EMAIL_SELECTION_STATE,
+    )
+    return legacy_payload if isinstance(legacy_payload, dict) else None
 
 
 def _format_full_email(email: dict) -> dict:
@@ -36,7 +65,34 @@ def _format_full_email(email: dict) -> dict:
     }
 
 
-def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict) -> dict:
+def _save_active_email(
+    *,
+    email: dict,
+    user_id: int,
+    conversation_id: int,
+    session: Session,
+) -> None:
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        state_type="gmail_active_email",
+        payload={
+            "active_email": {
+                "message_id": email["id"],
+                "thread_id": email["threadId"],
+                "source": "received",
+            }
+        },
+    )
+
+
+def gmail_read_latest_email_tool(
+    user_id: int,
+    session: Session,
+    arguments: dict,
+    conversation_id: int,
+) -> dict:
 
     access_token = get_valid_google_access_token(user_id=user_id, session=session)
     recent_result_position = arguments.get("recent_result_position")
@@ -68,9 +124,16 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
                 "returned_count": 0,
                 "has_more": False,
             }
+        selected_email = emails[recent_result_position - 1]
+        _save_active_email(
+            email=selected_email,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
         return {
             "success": True,
-            "emails": [_format_full_email(emails[recent_result_position - 1])],
+            "emails": [_format_full_email(selected_email)],
             "returned_count": 1,
             "has_more": False,
         }
@@ -81,6 +144,13 @@ def gmail_read_latest_email_tool(user_id: int, session: Session, arguments: dict
         max_results=max_results,
     )
     formatted_emails = [_format_full_email(email) for email in emails]
+    if len(emails) == 1:
+        _save_active_email(
+            email=emails[0],
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
     return {
         "success": bool(formatted_emails),
         "emails": formatted_emails,
@@ -117,10 +187,56 @@ def gmail_read_specific_email_tool(arguments: dict,session: Session,user_id: int
     if arguments.get("requested_result_count", 1) > 1:
         return {"success": False, "reason": "multiple_email_read_not_supported", "message": "Only one complete email can be read per request. Ask the user which email they want to read first.", "emails": [], "returned_count": 0, "has_more": False}
 
+    if arguments.get("selection_source") == "active":
+        active_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            state_type="gmail_active_email",
+        )
+        active_email = (
+            active_payload.get("active_email")
+            if isinstance(active_payload, dict)
+            else None
+        )
+        message_id = (
+            active_email.get("message_id")
+            if isinstance(active_email, dict)
+            else None
+        )
+
+        if not isinstance(message_id, str) or not message_id:
+            return {
+                "success": False,
+                "reason": "missing_active_email",
+                "message": "No active email was found.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        email = fetch_full_specific_gmail_messages_metadata(
+            access_token=get_valid_google_access_token(
+                user_id=user_id,
+                session=session,
+            ),
+            message_id=message_id,
+        )
+        return {
+            "success": True,
+            "emails": [_format_full_email(email)],
+            "returned_count": 1,
+            "has_more": False,
+        }
+
     selected_position = arguments.get("selected_result_position")
     if selected_position is not None:
 
-        payload = get_tool_payload(user_id=user_id, conversation_id=conversation_id, session=session, state_type="gmail_read_specific_email_selection")
+        payload = _load_email_selection_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
         emails = payload.get("emails") if isinstance(payload, dict) else None
 
         if not isinstance(emails, list):
@@ -141,8 +257,49 @@ def gmail_read_specific_email_tool(arguments: dict,session: Session,user_id: int
             "returned_count": 0,
             "has_more": False}
         
-        delete_tool_state(user_id=user_id, conversation_id=conversation_id, session=session)
-        return {"success": True, "emails": [_format_full_email(emails[selected_position - 1])], "returned_count": 1, "has_more": False}
+        selected_candidate = emails[selected_position - 1]
+        if not isinstance(selected_candidate, dict):
+            return {
+                "success": False,
+                "reason": "invalid_selected_email",
+                "message": "The selected email data is invalid.",
+                "emails": [],
+                "returned_count": 0,
+                "has_more": False,
+            }
+
+        if (
+            isinstance(selected_candidate.get("id"), str)
+            and isinstance(selected_candidate.get("payload"), dict)
+        ):
+            selected_email = selected_candidate
+        else:
+            message_id = selected_candidate.get("message_id")
+            if not isinstance(message_id, str) or not message_id:
+                return {
+                    "success": False,
+                    "reason": "invalid_selected_email",
+                    "message": "The selected email has no valid ID.",
+                    "emails": [],
+                    "returned_count": 0,
+                    "has_more": False,
+                }
+
+            selected_email = fetch_full_specific_gmail_messages_metadata(
+                access_token=get_valid_google_access_token(
+                    user_id=user_id,
+                    session=session,
+                ),
+                message_id=message_id,
+            )
+
+        _save_active_email(
+            email=selected_email,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
+        return {"success": True, "emails": [_format_full_email(selected_email)], "returned_count": 1, "has_more": False}
 
     query = build_gmail_query(search_scope="received",
         start_date=arguments.get("start_date", ""),
@@ -161,13 +318,25 @@ def gmail_read_specific_email_tool(arguments: dict,session: Session,user_id: int
 
 
     if len(emails) == 1:
+        _save_active_email(
+            email=emails[0],
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+        )
         return {"success": True,
         "emails": [_format_full_email(emails[0])],
         "returned_count": 1,
         "has_more": False}
     
     candidates = _format_candidates(emails)
-    create_tool_state(user_id=user_id, conversation_id=conversation_id, session=session, payload={"emails": emails}, state_type="gmail_read_specific_email_selection")
+    create_tool_state(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        session=session,
+        payload={"emails": emails},
+        state_type=EMAIL_SELECTION_STATE,
+    )
 
     return {
         "success": False,

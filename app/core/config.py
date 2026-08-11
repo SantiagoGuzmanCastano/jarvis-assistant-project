@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_alrogithm: str = "HS256"
     access_token_expire_minutes: int
-    refresh_token_expire_days: int = 7
+    refresh_token_expire_days: int
 
     gemini_api_key: str
 
@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     google_client_id: str
     google_client_secret: str
     google_redirect_uri: str
+    frontend_url: str = "http://localhost:3000"
 
     google_request_timeout_seconds: float = 15.0
 

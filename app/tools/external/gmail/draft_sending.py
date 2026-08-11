@@ -120,6 +120,7 @@ def gmail_send_drafted_email_tool(
         access_token=access_token,
         max_results=min(max(int(arguments.get("max_results", 5)), 1), 15),
         query=query,
+        search_keywords=search_keywords,
     )
     drafts = draft_results["drafts"]
     if not drafts:

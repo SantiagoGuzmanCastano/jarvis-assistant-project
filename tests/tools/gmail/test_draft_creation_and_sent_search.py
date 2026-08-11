@@ -134,5 +134,6 @@ def test_search_sent_emails_uses_recipient_search_arguments(
         access_token="access-token",
         query="to:lina@example.com factura",
         max_results=5,
+        search_keywords=["factura"],
     )
     assert result["returned_count"] == 0

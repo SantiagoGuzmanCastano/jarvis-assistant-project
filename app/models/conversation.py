@@ -3,7 +3,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import Boolean, ForeignKey, false
 
 from app.db.base import Base
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,6 +15,12 @@ class Conversation(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(default="New conversation")
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    title_changed_by_user: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
 
     #Esta conversacion tiene un usuario dueño
     #Ese usuario es un objeto de la clase "User"

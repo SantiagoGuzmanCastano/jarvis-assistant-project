@@ -1,6 +1,13 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import RedirectResponse
 
-from app.core.oauth_state import create_oauth_state, verify_oauth_state
+from app.core.config import settings
+from app.core.errors import AppError
+from app.core.oauth_state import (
+    create_oauth_state,
+    validate_frontend_url,
+    verify_oauth_state,
+)
 from app.db.session import SessionDep
 from app.dependencies.auth import get_current_user
 from app.integrations.google_oauth import build_google_auth_url
@@ -13,25 +20,52 @@ from app.services.external_auth_service import complete_google_oauth, get_valid_
 router = APIRouter(prefix='/external-auth', tags=["external-auth"])
 
 @router.get("/google/connect")
-def connect_google(current_user: User = Depends(get_current_user)):
-    state = create_oauth_state(user_id=current_user.id)
+def connect_google(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    requested_frontend_url = (
+        request.headers.get("origin")
+        or settings.frontend_url
+    )
+    try:
+        frontend_url = validate_frontend_url(
+            requested_frontend_url,
+        )
+    except ValueError as error:
+        raise AppError(
+            code="invalid_frontend_origin",
+            message="The frontend origin is not allowed.",
+            status_code=400,
+        ) from error
+
+    state = create_oauth_state(
+        user_id=current_user.id,
+        frontend_url=frontend_url,
+    )
     auth_url = build_google_auth_url(state=state)
 
     return {
         "auth_url": auth_url
     }
 
-@router.get("/google/callback", response_model=ExternalAccountResponse)
+@router.get("/google/callback")
 def google_callback(code: str, state: str, session: SessionDep):
-    user_id = verify_oauth_state(state)
+    oauth_state = verify_oauth_state(state)
 
-    external_account = complete_google_oauth(
-        user_id=user_id,
+    complete_google_oauth(
+        user_id=oauth_state.user_id,
         code=code,
         session=session,
     )
 
-    return external_account
+    return RedirectResponse(
+        url=(
+            f"{oauth_state.frontend_url}"
+            "?google_connected=1"
+        ),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 
 @router.get("/accounts", response_model= list[ExternalAccountResponse])

@@ -17,9 +17,15 @@ GOOGLE_GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.compose"] 
+    "https://www.googleapis.com/auth/gmail.compose",
+]
 
+GOOGLE_CALENDAR_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.events.freebusy",
+]
 
+GOOGLE_SCOPES = [*GOOGLE_GMAIL_SCOPES, *GOOGLE_CALENDAR_SCOPES]
 
 # esta funcion crea la URL a donde mandamos al usuario para que autorice a Jarvis en Google
 # solo construye un link
@@ -63,7 +69,7 @@ def build_google_auth_url(state:str) -> str:
         #que permisos estamos pidiendo
         #https://www.googleapis.com/auth/gmail.readonly
         #https://www.googleapis.com/auth/userinfo.email
-        "scope": " ".join(GOOGLE_GMAIL_SCOPES),
+        "scope": " ".join(GOOGLE_SCOPES),
 
         # quiero poder acceder a las apis de google autorizadas por el usuario
         # cuando el usuario no esta usando la app en la practica queremos refresh_token

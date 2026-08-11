@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 class CreateConversation(BaseModel):
     title: str | None = Field(default=None)
 
+class UpdateConversation(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
 class DeleteConversation(BaseModel):
     id: int
 
@@ -24,6 +27,11 @@ class ConversationResponse(BaseModel):
     user_id: int
     title: str
     created_at: datetime
+
+class ConversationPage(BaseModel):
+    items: list[ConversationResponse]
+    next_before_id: int | None
+    has_more: bool
 
 class ConversationWithMessages(BaseModel):
     id: int

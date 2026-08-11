@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.gmail.drafts import create_draft_reply
 from app.integrations.gmail.messages import (
+    fetch_metadata_MORE_gmail_message,
     fetch_specific_gmail_message_format_MORE,
     search_latest_gmail_messages_for_metadata,
 )
@@ -46,6 +47,77 @@ def gmail_create_reply_draft_tool(arguments: dict, user_id: int, session: Sessio
     access_token = get_valid_google_access_token(user_id=user_id,session=session)
     reply_body = arguments.get("reply_body", "")
     recent_result_position = arguments.get("recent_result_position")
+    selection_source = arguments.get("selection_source")
+
+    if selection_source == "active":
+        if not reply_body:
+            return {
+                "success": False,
+                "reason": "missing_body",
+                "message": "Body is required for the new draft content, request it to the user",
+            }
+
+        tool_payload = get_tool_payload(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            session=session,
+            state_type="gmail_active_email",
+        )
+        active_email = (
+            tool_payload.get("active_email")
+            if isinstance(tool_payload, dict)
+            else None
+        )
+
+        if not isinstance(active_email, dict):
+            return {
+                "success": False,
+                "reason": "missing_active_email",
+                "message": "No active received email was found.",
+            }
+
+        message_id = active_email.get("message_id")
+        if not isinstance(message_id, str) or not message_id:
+            return {
+                "success": False,
+                "reason": "invalid_active_email_state",
+                "message": "The active email state is invalid.",
+            }
+
+        email = fetch_metadata_MORE_gmail_message(
+            access_token=access_token,
+            message_id=message_id,
+        )
+        reply_context = extract_gmail_reply_context(emails=[email], email_index=0)
+        created_draft = create_draft_reply(
+            access_token=access_token,
+            thread_id=reply_context["threadId"],
+            original_message_id=reply_context["original_message_id"],
+            references=reply_context["references"],
+            recipient_email=reply_context["recipient_email"],
+            subject=reply_context["subject"],
+            body=reply_body,
+        )
+        _save_active_reply_draft(
+            created_draft=created_draft,
+            recipient_email=reply_context["recipient_email"],
+            subject=reply_context["subject"],
+            body=reply_body,
+            user_id=user_id,
+            session=session,
+            conversation_id=conversation_id,
+        )
+
+        return {
+            "success": True,
+            "draft": {
+                "draft_id": created_draft["id"],
+                "message_id": created_draft["message"]["id"],
+                "thread_id": created_draft["message"]["threadId"],
+                "recipient_email": reply_context["recipient_email"],
+                "subject": reply_context["subject"],
+            },
+        }
 
     selection_type = (
         "recent_email"

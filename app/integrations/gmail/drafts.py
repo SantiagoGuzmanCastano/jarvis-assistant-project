@@ -1,13 +1,16 @@
 
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
+from functools import partial
 import unicodedata
 from zoneinfo import ZoneInfo
 
 from app.integrations.gmail.client import request_gmail
+from app.integrations.gmail.search import build_gmail_keyword_fallback_query
 
 GOOGLE_CREATEDRAFT_URL = "https://gmail.googleapis.com/gmail/v1/users/me/drafts"
 
@@ -250,18 +253,122 @@ def has_real_next_draft_page(
     return bool(next_page.get("drafts"))
 
 
-def fetch_specific_gmail_drafts(access_token: str,max_results: int,query: str,) -> dict:
+GMAIL_DRAFT_FALLBACK_SCAN_LIMIT = 50
+GMAIL_DRAFT_FALLBACK_WORKERS = 5
+
+
+def _draft_matches_search_keywords(
+    draft: dict,
+    search_keywords: list[str],
+) -> bool:
+    normalized_keywords = [
+        normalize_text(keyword)
+        for keyword in search_keywords
+        if normalize_text(keyword)
+    ]
+    if not normalized_keywords:
+        return False
+
+    searchable_text = normalize_text(
+        " ".join(
+            [
+                draft.get("to", ""),
+                draft.get("subject", ""),
+                draft.get("snippet", ""),
+                draft.get("body", ""),
+            ]
+        )
+    )
+    return any(keyword in searchable_text for keyword in normalized_keywords)
+
+
+def _fetch_fallback_matching_draft_resources(
+    *,
+    access_token: str,
+    max_results: int,
+    query: str,
+    search_keywords: list[str],
+) -> tuple[list[dict], bool] | None:
+    fallback_query = build_gmail_keyword_fallback_query(
+        query=query,
+        search_keywords=search_keywords,
+    )
+    if fallback_query is None:
+        return None
+
+    fallback_data = fetch_gmail_drafts_ids(
+        access_token=access_token,
+        max_results=max(max_results, GMAIL_DRAFT_FALLBACK_SCAN_LIMIT),
+        query=fallback_query,
+    )
+    draft_ids = [
+        draft["id"]
+        for draft in fallback_data.get("drafts", [])
+    ]
+
+    fetch_full_draft = partial(
+        fetch_gmail_draft_full,
+        access_token=access_token,
+    )
+    with ThreadPoolExecutor(
+        max_workers=min(GMAIL_DRAFT_FALLBACK_WORKERS, len(draft_ids) or 1)
+    ) as executor:
+        fetched_drafts = list(executor.map(fetch_full_draft, draft_ids))
+
+    matching_drafts = []
+    for draft in fetched_drafts:
+        formatted_draft = format_gmail_draft_full(
+            draft=draft,
+            position=len(matching_drafts) + 1,
+        )
+        if _draft_matches_search_keywords(
+            draft=formatted_draft,
+            search_keywords=search_keywords,
+        ):
+            matching_drafts.append(draft)
+
+    has_more = (
+        len(matching_drafts) > max_results
+        or bool(fallback_data.get("nextPageToken"))
+    )
+    return matching_drafts[:max_results], has_more
+
+
+def fetch_specific_gmail_drafts(
+    access_token: str,
+    max_results: int,
+    query: str,
+    search_keywords: list[str] | None = None,
+) -> dict:
     data = fetch_gmail_drafts_ids(
         access_token=access_token,
         max_results=max_results,
         query=query,
     )
 
-    drafts = []
-    for position, draft in enumerate(data.get("drafts", []), start=1):
-        fetched_draft = fetch_gmail_draft_metadata(
+    draft_resources = data.get("drafts", [])
+    used_fallback = False
+    fallback_has_more = False
+    if not draft_resources and search_keywords:
+        fallback_result = _fetch_fallback_matching_draft_resources(
             access_token=access_token,
-            draft_id=draft["id"],
+            max_results=max_results,
+            query=query,
+            search_keywords=search_keywords,
+        )
+        if fallback_result is not None:
+            draft_resources, fallback_has_more = fallback_result
+            used_fallback = True
+
+    drafts = []
+    for position, draft in enumerate(draft_resources, start=1):
+        fetched_draft = (
+            draft
+            if used_fallback
+            else fetch_gmail_draft_metadata(
+                access_token=access_token,
+                draft_id=draft["id"],
+            )
         )
         drafts.append(
             format_gmail_draft_candidate(
@@ -270,32 +377,63 @@ def fetch_specific_gmail_drafts(access_token: str,max_results: int,query: str,) 
             )
         )
 
-    has_more = has_real_next_draft_page(
-        access_token=access_token,
-        query=query,
-        next_page_token=data.get("nextPageToken"),
+    has_more = (
+        fallback_has_more
+        if used_fallback
+        else has_real_next_draft_page(
+            access_token=access_token,
+            query=query,
+            next_page_token=data.get("nextPageToken"),
+        )
     )
 
     return {
         "drafts": drafts,
         "returned_count": len(drafts),
         "has_more": has_more,
-        "next_page_token": data.get("nextPageToken") if has_more else None,
+        "next_page_token": (
+            data.get("nextPageToken")
+            if has_more and not used_fallback
+            else None
+        ),
     }
 
 
-def fetch_specific_gmail_drafts_full(access_token: str,max_results: int,query: str,) -> dict:
+def fetch_specific_gmail_drafts_full(
+    access_token: str,
+    max_results: int,
+    query: str,
+    search_keywords: list[str] | None = None,
+) -> dict:
     data = fetch_gmail_drafts_ids(
         access_token=access_token,
         max_results=max_results,
         query=query,
     )
 
-    drafts = []
-    for position, draft in enumerate(data.get("drafts", []), start=1):
-        fetched_draft = fetch_gmail_draft_full(
+    draft_resources = data.get("drafts", [])
+    used_fallback = False
+    fallback_has_more = False
+    if not draft_resources and search_keywords:
+        fallback_result = _fetch_fallback_matching_draft_resources(
             access_token=access_token,
-            draft_id=draft["id"],
+            max_results=max_results,
+            query=query,
+            search_keywords=search_keywords,
+        )
+        if fallback_result is not None:
+            draft_resources, fallback_has_more = fallback_result
+            used_fallback = True
+
+    drafts = []
+    for position, draft in enumerate(draft_resources, start=1):
+        fetched_draft = (
+            draft
+            if used_fallback
+            else fetch_gmail_draft_full(
+                access_token=access_token,
+                draft_id=draft["id"],
+            )
         )
         drafts.append(
             format_gmail_draft_full(
@@ -304,10 +442,14 @@ def fetch_specific_gmail_drafts_full(access_token: str,max_results: int,query: s
             )
         )
 
-    has_more = has_real_next_draft_page(
-        access_token=access_token,
-        query=query,
-        next_page_token=data.get("nextPageToken"),
+    has_more = (
+        fallback_has_more
+        if used_fallback
+        else has_real_next_draft_page(
+            access_token=access_token,
+            query=query,
+            next_page_token=data.get("nextPageToken"),
+        )
     )
 
     #esto se guarda en el payload de update_email?draft_tool
@@ -315,7 +457,11 @@ def fetch_specific_gmail_drafts_full(access_token: str,max_results: int,query: s
         "drafts": drafts,
         "returned_count": len(drafts),
         "has_more": has_more,
-        "next_page_token": data.get("nextPageToken") if has_more else None,
+        "next_page_token": (
+            data.get("nextPageToken")
+            if has_more and not used_fallback
+            else None
+        ),
     }
 
 

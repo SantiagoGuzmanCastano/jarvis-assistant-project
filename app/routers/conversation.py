@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException,status
+from fastapi import APIRouter, Depends, HTTPException,status, Query
 
 from app.db.session import SessionDep
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.schemas.conversation import ConversationResponse, ConversationWithMessages, CreateConversation, CreateMessage, DeleteConversation, MessageResponse
-from app.services.conversation import create_user_conversation, create_user_message, delete_current_user_conversation, get_current_user_conversations, get_user_conversation_detail
+from app.schemas.conversation import ConversationPage, ConversationResponse, ConversationWithMessages, CreateConversation, CreateMessage, DeleteConversation, MessageResponse, UpdateConversation
+from app.services.conversation import create_user_conversation, create_user_message, delete_current_user_conversation, get_current_user_conversations, get_user_conversation_detail, rename_current_user_conversation
 
 #el tags sirve para que en los docs los endpoints de conversation salgan bajo del titulo
 #que esta en tags, o sea conversations
@@ -15,10 +15,14 @@ def create_new_conversation(body: CreateConversation, session: SessionDep, curre
     new_conversation = create_user_conversation(body=body, session=session, current_user=current_user)
     return new_conversation
 
-@router.get('', response_model=list[ConversationResponse])
-def list_user_conversations(session: SessionDep, current_user: User = Depends(get_current_user)):
-    conversations=get_current_user_conversations(current_user=current_user, session=session)
+@router.get('', response_model=ConversationPage)
+def list_user_conversations(session: SessionDep, current_user: User = Depends(get_current_user), limit: int = Query(default=5, ge=1, le=25), before_id: int | None = Query(default=None)):
+    conversations=get_current_user_conversations(current_user=current_user, session=session, limit=limit, before_id=before_id)
     return conversations
+
+@router.patch('/{conversation_id}', response_model=ConversationResponse)
+def rename_conversation(conversation_id: int, body: UpdateConversation, session: SessionDep, current_user: User = Depends(get_current_user)):
+    return rename_current_user_conversation(current_user=current_user, conversation_id=conversation_id, body=body, session=session)
 
 @router.get('/{conversation_id}', response_model=ConversationWithMessages)
 def get_current_user_conversation_by_id(conversation_id: int, session: SessionDep, current_user: User = Depends(get_current_user)):

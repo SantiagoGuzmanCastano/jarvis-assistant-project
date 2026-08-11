@@ -1,5 +1,5 @@
 import base64
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from app.schemas.tools.gmail_results import ReadEmailResult
 from app.tools.external.gmail.received_email_reading import gmail_read_specific_email_tool
@@ -10,6 +10,7 @@ def _gmail_email(message_id: str, sender: str, subject: str, body: str) -> dict:
 
     return {
         "id": message_id,
+        "threadId": f"thread-{message_id}",
         "snippet": body,
         "payload": {
             "mimeType": "text/plain",
@@ -24,11 +25,10 @@ def _gmail_email(message_id: str, sender: str, subject: str, body: str) -> dict:
 
 
 @patch("app.tools.external.gmail.received_email_reading.create_tool_state")
-@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
 @patch("app.tools.external.gmail.received_email_reading.fetch_full_specific_gmail_messages")
 @patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token")
 @patch("app.tools.external.gmail.received_email_reading.build_gmail_query", return_value="from:ana@example.com")
-def test_search_with_multiple_matches_saves_state_and_requests_selection(build_query_mock: Mock, access_token_mock: Mock, fetch_messages_mock: Mock, delete_state_mock: Mock,create_state_mock: Mock,) -> None:
+def test_search_with_multiple_matches_saves_state_and_requests_selection(build_query_mock: Mock, access_token_mock: Mock, fetch_messages_mock: Mock, create_state_mock: Mock,) -> None:
 
     session = Mock()
     #mock significa objeto falso controlable
@@ -87,26 +87,24 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
         max_results=3,
         query="from:ana@example.com",
     )
-    
-    # delete_state_mock
-    # → representa borrar el estado temporal anterior.
-    delete_state_mock.assert_not_called()
-
     # create_state_mock
     # → representa guardar los candidatos para la selección.
     create_state_mock.assert_called_once_with(
         user_id=7,
         session=session,
         conversation_id=11,
-        state_type="gmail_read_specific_email_selection",
+        state_type="gmail_email_selection",
         payload={"emails": emails},
     )
 
 
 
-@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
 @patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
-def test_selected_position_returns_saved_email_and_clears_state( get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
+def test_selected_position_returns_saved_email_and_saves_it_as_active(
+    get_payload_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
     session = Mock()
     emails = [
         _gmail_email("email-1", "Ana <ana@example.com>", "Factura enero", "Primer correo"),
@@ -142,11 +140,175 @@ def test_selected_position_returns_saved_email_and_clears_state( get_payload_moc
         user_id=7,
         conversation_id=11,
         session=session,
-        state_type="gmail_read_specific_email_selection",
+        state_type="gmail_email_selection",
     )
 
-    #despues verifica si se borro
-    delete_state_mock.assert_called_once_with(user_id=7, conversation_id=11, session=session)
+    # El estado de selección se reemplaza por el email activo.
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_email",
+        payload={
+            "active_email": {
+                "message_id": "email-2",
+                "thread_id": "thread-email-2",
+                "source": "received",
+            }
+        },
+    )
+
+
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "fetch_full_specific_gmail_messages_metadata"
+)
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "get_valid_google_access_token"
+)
+@patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
+def test_selected_search_metadata_fetches_exact_full_email(
+    get_payload_mock: Mock,
+    access_token_mock: Mock,
+    fetch_full_email_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    full_email = _gmail_email(
+        "email-1",
+        "Ana <ana@example.com>",
+        "Factura enero",
+        "Contenido completo",
+    )
+    get_payload_mock.return_value = {
+        "emails": [
+            {
+                "position": 1,
+                "message_id": "email-1",
+                "thread_id": "thread-email-1",
+                "sender": "Ana <ana@example.com>",
+                "subject": "Factura enero",
+                "date": "Mon, 1 Jun 2026 10:00:00 -0500",
+                "snippet": "Contenido...",
+            }
+        ]
+    }
+    access_token_mock.return_value = "access-token"
+    fetch_full_email_mock.return_value = full_email
+
+    result = gmail_read_specific_email_tool(
+        arguments={"selected_result_position": 1},
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    assert result["emails"][0]["body"] == "Contenido completo"
+    fetch_full_email_mock.assert_called_once_with(
+        access_token="access-token",
+        message_id="email-1",
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_email",
+        payload={
+            "active_email": {
+                "message_id": "email-1",
+                "thread_id": "thread-email-1",
+                "source": "received",
+            }
+        },
+    )
+
+
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "fetch_full_specific_gmail_messages_metadata"
+)
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "get_valid_google_access_token"
+)
+@patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
+def test_active_email_is_fetched_and_read_again(
+    get_payload_mock: Mock,
+    access_token_mock: Mock,
+    fetch_full_email_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    full_email = _gmail_email(
+        "email-1",
+        "Ana <ana@example.com>",
+        "Factura enero",
+        "Contenido completo",
+    )
+    get_payload_mock.return_value = {
+        "active_email": {
+            "message_id": "email-1",
+            "thread_id": "thread-email-1",
+            "source": "received",
+        }
+    }
+    access_token_mock.return_value = "access-token"
+    fetch_full_email_mock.return_value = full_email
+
+    result = gmail_read_specific_email_tool(
+        arguments={"selection_source": "active"},
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    assert result["emails"][0]["body"] == "Contenido completo"
+    get_payload_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_email",
+    )
+    fetch_full_email_mock.assert_called_once_with(
+        access_token="access-token",
+        message_id="email-1",
+    )
+    create_state_mock.assert_not_called()
+
+
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "fetch_full_specific_gmail_messages_metadata"
+)
+@patch(
+    "app.tools.external.gmail.received_email_reading."
+    "get_valid_google_access_token"
+)
+@patch(
+    "app.tools.external.gmail.received_email_reading.get_tool_payload",
+    return_value=None,
+)
+def test_active_email_without_state_returns_error(
+    get_payload_mock: Mock,
+    access_token_mock: Mock,
+    fetch_full_email_mock: Mock,
+) -> None:
+    result = gmail_read_specific_email_tool(
+        arguments={"selection_source": "active"},
+        session=Mock(),
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is False
+    assert result["reason"] == "missing_active_email"
+    access_token_mock.assert_not_called()
+    fetch_full_email_mock.assert_not_called()
 
 
 #caso:
@@ -155,11 +317,14 @@ def test_selected_position_returns_saved_email_and_clears_state( get_payload_moc
 # → no existe estado temporal
 # → el tool no puede saber cuál correo es el 3
 # → devuelve missing_tool_state
-# → no intenta borrar estado
+# → no reemplaza el estado pendiente
 
-@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
 @patch("app.tools.external.gmail.received_email_reading.get_tool_payload",return_value=None,)
-def test_selected_position_without_state_returns_error(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
+def test_selected_position_without_state_returns_error(
+    get_payload_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
 
     session = Mock()
     get_payload_mock.return_value = None
@@ -180,15 +345,17 @@ def test_selected_position_without_state_returns_error(get_payload_mock: Mock, d
                 "has_more": False,
             }
     
-    get_payload_mock.assert_called_once_with(
-    user_id=7,
-    conversation_id=11,
-    session=session,
-    state_type="gmail_read_specific_email_selection",
-    )
-    delete_state_mock.assert_not_called()
+    assert [
+        call.kwargs["state_type"]
+        for call in get_payload_mock.call_args_list
+    ] == [
+        "gmail_email_selection",
+        "gmail_read_specific_email_selection",
+    ]
+    create_state_mock.assert_not_called()
 
 
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
 @patch("app.tools.external.gmail.received_email_reading.fetch_full_specific_gmail_messages", return_value=[])
 @patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token", return_value="access-token")
 @patch("app.tools.external.gmail.received_email_reading.build_gmail_query", return_value="from:ana@example.com")
@@ -196,6 +363,7 @@ def test_empty_search_result_returns_email_not_found(
     build_query_mock: Mock,
     access_token_mock: Mock,
     fetch_messages_mock: Mock,
+    create_state_mock: Mock,
 ) -> None:
     result = gmail_read_specific_email_tool(
         arguments={"sender_hint": ["Ana"]},
@@ -207,6 +375,49 @@ def test_empty_search_result_returns_email_not_found(
     assert result["success"] is False
     assert result["reason"] == "email_not_found"
     assert ReadEmailResult.model_validate(result).emails == []
+    create_state_mock.assert_not_called()
+
+
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.fetch_full_specific_gmail_messages")
+@patch("app.tools.external.gmail.received_email_reading.get_valid_google_access_token", return_value="access-token")
+@patch("app.tools.external.gmail.received_email_reading.build_gmail_query", return_value="from:ana@example.com")
+def test_single_search_result_saves_email_as_active(
+    build_query_mock: Mock,
+    access_token_mock: Mock,
+    fetch_messages_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    email = _gmail_email(
+        "email-1",
+        "Ana <ana@example.com>",
+        "Factura enero",
+        "Primer correo",
+    )
+    fetch_messages_mock.return_value = [email]
+
+    result = gmail_read_specific_email_tool(
+        arguments={"sender_hint": ["Ana"]},
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_email",
+        payload={
+            "active_email": {
+                "message_id": "email-1",
+                "thread_id": "thread-email-1",
+                "source": "received",
+            }
+        },
+    )
 
 
 def test_multiple_requested_results_returns_unsupported_error() -> None:
@@ -229,9 +440,12 @@ def test_multiple_requested_results_returns_unsupported_error() -> None:
 
 
 
-@patch("app.tools.external.gmail.received_email_reading.delete_tool_state")
+@patch("app.tools.external.gmail.received_email_reading.create_tool_state")
 @patch("app.tools.external.gmail.received_email_reading.get_tool_payload")
-def test_selected_position_out_of_range_returns_error(get_payload_mock: Mock, delete_state_mock: Mock,) -> None:
+def test_selected_position_out_of_range_returns_error(
+    get_payload_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
     session = Mock()
     emails = [
         _gmail_email("email-1", "Ana <ana@example.com>", "Factura enero", "Primer correo"),
@@ -260,6 +474,6 @@ def test_selected_position_out_of_range_returns_error(get_payload_mock: Mock, de
     user_id=7,
     conversation_id=11,
     session=session,
-    state_type="gmail_read_specific_email_selection",
+    state_type="gmail_email_selection",
     )
-    delete_state_mock.assert_not_called()
+    create_state_mock.assert_not_called()

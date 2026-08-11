@@ -4,3 +4,7 @@ __pycache__/
 bruno/
 AGENTS.md
 CONTEXT.md
+flutter_app/
+.playwright-cli/
+output/
+workshop-readme-staging/

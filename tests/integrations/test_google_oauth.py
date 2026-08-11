@@ -1,11 +1,30 @@
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 import requests
 
 from app.core.config import settings
 from app.core.errors import AppError
-from app.integrations.google_oauth import _request_google_oauth
+from app.integrations.google_oauth import (
+    GOOGLE_CALENDAR_SCOPES,
+    GOOGLE_SCOPES,
+    _request_google_oauth,
+    build_google_auth_url,
+)
+
+
+def test_google_auth_url_requests_calendar_scopes_and_offline_consent() -> None:
+    auth_url = build_google_auth_url(state="oauth-state")
+    query = parse_qs(urlparse(auth_url).query)
+    requested_scopes = query["scope"][0].split()
+
+    assert set(requested_scopes) == set(GOOGLE_SCOPES)
+    assert set(GOOGLE_CALENDAR_SCOPES).issubset(requested_scopes)
+    assert len(requested_scopes) == len(set(requested_scopes))
+    assert query["access_type"] == ["offline"]
+    assert query["prompt"] == ["consent"]
+    assert query["state"] == ["oauth-state"]
 
 
 @patch("app.integrations.google_oauth.requests.request")

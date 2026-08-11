@@ -93,7 +93,8 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
     fetch_drafts_mock.assert_called_once_with(
         access_token='access-token',
         max_results = 5,
-        query = "to:lina@example.com factura"
+        query = "to:lina@example.com factura",
+        search_keywords=["factura"],
     )
 
     assert delete_state_mock.call_count == 1
@@ -101,7 +102,7 @@ def test_search_with_multiple_matches_saves_state_and_requests_selection(build_q
     user_id=7,
     conversation_id=11,
     session=session,
-    state_type="gmail_read_specific_draft_selection",
+    state_type="gmail_draft_selection",
     payload={
         "drafts": drafts,
         "search_arguments": {
@@ -173,7 +174,7 @@ def test_selected_position_returns_saved_draft_and_sets_active_draft(
         user_id=7,
         conversation_id=11,
         session=session,
-        state_type="gmail_read_specific_draft_selection",
+        state_type="gmail_draft_selection",
     )
     delete_state_mock.assert_called_once_with(
         user_id=7,
@@ -186,6 +187,77 @@ def test_selected_position_returns_saved_draft_and_sets_active_draft(
         session=session,
         state_type="gmail_active_draft",
         payload={"active_draft": drafts[1]},
+    )
+
+
+@patch("app.tools.external.gmail.draft_reading.create_tool_state")
+@patch("app.tools.external.gmail.draft_reading.delete_tool_state")
+@patch("app.tools.external.gmail.draft_reading.format_gmail_draft_full")
+@patch("app.tools.external.gmail.draft_reading.fetch_gmail_draft_full")
+@patch("app.tools.external.gmail.draft_reading.get_valid_google_access_token")
+@patch("app.tools.external.gmail.draft_reading.get_tool_payload")
+def test_selected_search_metadata_fetches_exact_full_draft(
+    get_payload_mock: Mock,
+    access_token_mock: Mock,
+    fetch_full_draft_mock: Mock,
+    format_draft_mock: Mock,
+    delete_state_mock: Mock,
+    create_state_mock: Mock,
+) -> None:
+    session = Mock()
+    candidate = {
+        "position": 1,
+        "draft_id": "draft-1",
+        "to": "lina@example.com",
+        "subject": "Rock progresivo",
+        "date": "2026-07-29T10:00:00-05:00",
+        "snippet": "Pink Floyd y King Crimson.",
+    }
+    full_draft = _gmail_draft(
+        position=1,
+        draft_id="draft-1",
+        to="lina@example.com",
+        subject="Rock progresivo",
+        date="2026-07-29T10:00:00-05:00",
+        snippet="Pink Floyd y King Crimson.",
+        body="Reunión el 16 de agosto.",
+    )
+    get_payload_mock.return_value = {"drafts": [candidate]}
+    access_token_mock.return_value = "access-token"
+    fetch_full_draft_mock.return_value = {"id": "draft-1"}
+    format_draft_mock.return_value = full_draft
+
+    result = gmail_read_specific_draft_tool(
+        arguments={
+            "selected_result_position": 1,
+            "reuse_previous_search": True,
+        },
+        session=session,
+        user_id=7,
+        conversation_id=11,
+    )
+
+    assert result["success"] is True
+    assert result["drafts"] == [full_draft]
+    fetch_full_draft_mock.assert_called_once_with(
+        draft_id="draft-1",
+        access_token="access-token",
+    )
+    format_draft_mock.assert_called_once_with(
+        draft={"id": "draft-1"},
+        position=1,
+    )
+    create_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
+        state_type="gmail_active_draft",
+        payload={"active_draft": full_draft},
+    )
+    delete_state_mock.assert_called_once_with(
+        user_id=7,
+        conversation_id=11,
+        session=session,
     )
 
 
@@ -316,12 +388,14 @@ def test_selected_position_without_state_returns_error(
         "returned_count": 0,
         "has_more": False,
     }
-    get_payload_mock.assert_called_once_with(
-        user_id=7,
-        conversation_id=11,
-        session=session,
-        state_type="gmail_read_specific_draft_selection",
-    )
+    assert get_payload_mock.call_count == 2
+    assert [
+        call.kwargs["state_type"]
+        for call in get_payload_mock.call_args_list
+    ] == [
+        "gmail_draft_selection",
+        "gmail_read_specific_draft_selection",
+    ]
     delete_state_mock.assert_not_called()
 
 
