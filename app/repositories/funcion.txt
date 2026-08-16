@@ -1,2 +1,0 @@
-esta carpeta se encarga de tocar directamente la base de datos
-esta carpeta se encarga de ejecutar consultas

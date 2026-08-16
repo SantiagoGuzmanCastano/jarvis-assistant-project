@@ -1,6 +1,6 @@
 # Jarvis Web
 
-Cliente activo de Jarvis, construido con React, TypeScript, Vite y TanStack Query. `../flutter_app` se conserva para una futura fase móvil, pero no es el cliente actual.
+Cliente activo de Jarvis, construido con React, TypeScript, Vite y TanStack Query.
 
 ## Desarrollo local
 
