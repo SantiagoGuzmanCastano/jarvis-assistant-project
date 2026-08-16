@@ -1,10 +1,26 @@
-<p align="center">
-  <img src="docs/assets/jarvis-readme-banner.png" alt="Jarvis connects natural-language requests with communication and calendar tools" width="100%" />
-</p>
-
 # Jarvis Assistant
 
 An AI personal assistant that turns natural-language requests into controlled Gmail and Google Calendar actions.
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=8YG3ozOfUQ4">
+    <img src="docs/assets/jarvis-demo-cover.png" alt="Watch the Jarvis demo" width="900" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=8YG3ozOfUQ4"><strong>▶ Watch demo</strong></a>
+  ·
+  <a href="#architecture">Architecture</a>
+  ·
+  <a href="#run-locally">Run locally</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/SantiagoGuzmanCastano/jarvis-assistant-project/actions/workflows/ci.yml">
+    <img src="https://github.com/SantiagoGuzmanCastano/jarvis-assistant-project/actions/workflows/ci.yml/badge.svg" alt="CI status" />
+  </a>
+</p>
 
 Jarvis combines a responsive React client, a layered FastAPI backend, PostgreSQL persistence, Gemini-based intent routing, and Google OAuth. It is a learning-first engineering project built to explore how a conversational product can execute real external actions without handing control of the system to the LLM.
 
@@ -207,14 +223,15 @@ Provider calls are mocked in the automated suite. Real-account checks cover OAut
 | React web MVP | Complete |
 | Google Calendar MVP | Complete |
 | Basic voice pipeline | Next |
-| Presentation infrastructure and CI | Planned |
+| Portfolio presentation and CI | Complete |
 | Persistent cross-conversation memory | Optional |
 | Production deployment and proactive summaries | Planned |
 
-This is not presented as production-ready software. Deployment automation, rate limiting, monitoring, production secrets management, and CI remain future work. Keeping those limits explicit is part of the project: the goal is to demonstrate sound backend and applied-AI engineering, not to disguise an MVP as a finished commercial platform.
+This is not presented as production-ready software. Deployment automation, rate limiting, monitoring, and production secrets management remain future work. Keeping those limits explicit is part of the project: the goal is to demonstrate sound backend and applied-AI engineering, not to disguise an MVP as a finished commercial platform.
 
 ## Documentation
 
+- [Technical case study: keeping the LLM at the intent boundary](docs/case-study.md)
 - [Renewable session contract](docs/auth-session-refresh.md)
 - [Backend stabilization and tool refactor](docs/phase-7.5-backend-stabilization.md)
 - [Google Calendar MVP contract](docs/phase-9-google-calendar-mvp.md)
@@ -222,3 +239,7 @@ This is not presented as production-ready software. Deployment automation, rate 
 ## Why this project exists
 
 Jarvis is a deliberate learning project focused on backend architecture, applied AI, OAuth integrations, stateful conversational workflows, and failure-safe tool execution. The central challenge is not generating a chat response; it is translating ambiguous language into predictable, reviewable actions while keeping authority and state inside the application.
+
+## License
+
+This project is available under the [MIT License](LICENSE).
