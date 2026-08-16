@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Phase 7 delivered a functional Gmail integration. Phase 7.5 turns that functionality into a reliable backend foundation before a Flutter client is introduced. This phase does not add a new external integration or user-facing feature. It makes the existing auth, chat, OAuth, Gmail, tool, and temporary-state flows safe, testable, and maintainable.
+Phase 7 delivered a functional Gmail integration. Phase 7.5 turns that functionality into a reliable backend foundation before a production client is introduced. This phase does not add a new external integration or user-facing feature. It makes the existing auth, chat, OAuth, Gmail, tool, and temporary-state flows safe, testable, and maintainable.
 
-Flutter moves to Phase 10. Building it now would couple a new client to APIs and Gmail flows that are still being redesigned.
+Client implementation moves to a later phase. Building it now would couple a new interface to APIs and Gmail flows that are still being redesigned.
 
 ## Implementation status
 
@@ -38,7 +38,7 @@ Intentional exception:
 
 - Include `sub`, `exp`, `iat`, and `type` in access JWTs and validate them consistently.
 - Correct the OAuth2 documentation token URL.
-- Add CORS configuration by environment. It will be unused until Flutter exists, but it belongs to the API configuration now.
+- Add CORS configuration by environment before the browser client is introduced.
 - Define an application error contract with stable error codes, user-safe messages, and optional details.
 - Add global FastAPI exception handlers for validation, authentication, domain, Gemini, Google OAuth, and Gmail provider errors.
 - Define provider request timeouts in configuration and apply them to every Google request.
@@ -238,7 +238,7 @@ Do not start a later step until the previous step is understood, manually verifi
 
 ## Out of scope
 
-- Flutter UI and Flutter OAuth callback UX.
+- Client UI and OAuth callback UX.
 - Google Calendar.
 - Persistent memory.
 - Voice pipeline.
@@ -250,7 +250,7 @@ Those items belong to Phases 8 through 12 under the revised roadmap in `CONTEXT.
 ## Exit criteria
 
 - Access JWTs expire correctly.
-- CORS is configuration-driven and ready for a future Flutter Web origin.
+- CORS is configuration-driven and ready for browser client origins.
 - Gmail and Gemini failures return stable, safe API errors.
 - No sensitive request data is printed to normal logs.
 - Every Gmail tool validates typed input and returns a normalized result.

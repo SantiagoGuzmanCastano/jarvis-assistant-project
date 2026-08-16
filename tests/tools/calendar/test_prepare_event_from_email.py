@@ -974,7 +974,7 @@ def test_previous_selection_reuses_gmail_draft_selection_payload(
         {
             "position": 1,
             "draft_id": "draft-september-20",
-            "to": "linacastano03@gmail.com",
+            "to": "recipient@example.com",
             "subject": "Reunión de septiembre - Propuesta 3",
             "date": "2026-07-29T12:09:05-05:00",
             "snippet": "Propuesta de reunión para el día 20.",
@@ -982,7 +982,7 @@ def test_previous_selection_reuses_gmail_draft_selection_payload(
         {
             "position": 2,
             "draft_id": "draft-september-12",
-            "to": "linacastano03@gmail.com",
+            "to": "recipient@example.com",
             "subject": "Reunión de septiembre - Propuesta 2",
             "date": "2026-07-29T12:08:05-05:00",
             "snippet": "Propuesta de reunión para el día 12.",

@@ -108,7 +108,7 @@ Authorization: Bearer <access_token>
 ```
 
 When a protected request receives `401` because the access token has expired,
-the Flutter HTTP client will call `/auth/refresh`, save the new pair, and retry
+the web HTTP client will call `/auth/refresh`, save the new pair, and retry
 the original request once. If refresh fails, it clears the local session and
 returns to login.
 
